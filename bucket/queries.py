@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from .models import HORIZONS, STATUSES, Item
@@ -211,24 +212,28 @@ def increment_rank_quiz_counts(conn: sqlite3.Connection, item_ids: list[int]) ->
         )
 
 
-def remove_item_from_ranking(conn: sqlite3.Connection, item_id: int) -> Item | None:
+@contextmanager
+def immediate_transaction(conn: sqlite3.Connection):
+    conn.execute("BEGIN IMMEDIATE")
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
-        if row is None:
-            conn.rollback()
-            return None
-        item = Item.from_row(row)
-        if item.rank is None:
-            conn.commit()
-            return item
-        conn.execute("UPDATE items SET rank = NULL, ranked_at = NULL WHERE id = ?", (item_id,))
-        conn.execute("UPDATE items SET rank = rank - 1 WHERE rank > ?", (item.rank,))
+        yield
         conn.commit()
-    except sqlite3.Error:
+    except Exception:
         if conn.in_transaction:
             conn.rollback()
         raise
+
+
+def remove_item_from_ranking(conn: sqlite3.Connection, item_id: int) -> Item | None:
+    with immediate_transaction(conn):
+        row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if row is None:
+            return None
+        item = Item.from_row(row)
+        if item.rank is None:
+            return item
+        conn.execute("UPDATE items SET rank = NULL, ranked_at = NULL WHERE id = ?", (item_id,))
+        conn.execute("UPDATE items SET rank = rank - 1 WHERE rank > ?", (item.rank,))
     return get_item(conn, item_id)
 
 
@@ -238,11 +243,9 @@ def max_rank(conn: sqlite3.Connection) -> int:
 
 
 def insert_item_at_rank(conn: sqlite3.Connection, item_id: int, target_rank: int) -> Item | None:
-    try:
-        conn.execute("BEGIN IMMEDIATE")
+    with immediate_transaction(conn):
         row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
         if row is None:
-            conn.rollback()
             return None
         item = Item.from_row(row)
         if item.rank is not None:
@@ -255,11 +258,6 @@ def insert_item_at_rank(conn: sqlite3.Connection, item_id: int, target_rank: int
             "UPDATE items SET rank = ?, ranked_at = ? WHERE id = ?",
             (target_rank, utc_now(), item_id),
         )
-        conn.commit()
-    except sqlite3.Error:
-        if conn.in_transaction:
-            conn.rollback()
-        raise
     return get_item(conn, item_id)
 
 

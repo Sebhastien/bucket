@@ -57,6 +57,9 @@ def run_migrations(conn: sqlite3.Connection) -> None:
 def apply_migration(conn: sqlite3.Connection, migration: Path, version: int) -> None:
     """Apply one migration and its version bump in a single SQLite transaction."""
     script = migration.read_text()
+    # `version` is interpolated because sqlite3.executescript() does not support
+    # parameters. It is safe because callers parse it with int() from a migration
+    # filename before passing it here.
     transactional_script = f"""
 BEGIN;
 {script}

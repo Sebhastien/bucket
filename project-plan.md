@@ -248,6 +248,7 @@ The CLI supports a pairwise ranking mode through:
 bucket review --ranking
 bucket review --ranking --horizon now
 bucket review --ranking --limit 5
+bucket review --ranking --until-all-ranked
 bucket review --ranking --no-randomize
 ```
 
@@ -282,7 +283,9 @@ Which would you rather do sooner?
 Choose [1/2/skip/quit]:
 ```
 
-A valid `1` or `2` answer increments `rank_quiz_count` for both displayed items. `skip` leaves counts and ranks unchanged for that comparison. `quit` exits safely without inserting the current candidate.
+A valid `1` or `2` answer increments `rank_quiz_count` for both displayed items. `skip` leaves counts and ranks unchanged for that comparison and moves on to another candidate in the current session. `quit` exits safely without inserting the current candidate.
+
+`--until-all-ranked` keeps selecting unranked eligible items until none remain, then stops before re-ranking existing items. It can be combined with filters such as `--horizon now`.
 
 ---
 
@@ -328,7 +331,7 @@ Agent use is the primary concern, so the agent-facing surface (`--json`, stable 
 - [ ] `002_add_ranking_fields.sql`: add `rank`, `rank_quiz_count`, `ranked_at`
 - [ ] `queries.py`: ranking candidate selection, quiz count increments, rank insertion/reordering
 - [ ] `ranking.py`: pure binary-search pivot and bounds helpers, including randomized midpoint selection
-- [ ] `commands/review.py`: `bucket review --ranking` interactive pairwise quiz
+- [ ] `commands/review.py`: `bucket review --ranking` interactive pairwise quiz, including `--until-all-ranked`
 - [ ] `bucket list --ranked`: show/sort by global rank while preserving JSON fields
 - [ ] Tests for unranked-first selection, skipped comparisons, least-quizzed fallback, rank shifting, and CLI flow
 

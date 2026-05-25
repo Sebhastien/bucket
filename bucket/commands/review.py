@@ -15,6 +15,11 @@ def register(app: typer.Typer) -> None:
         horizon: str | None = typer.Option(None, "--horizon"),
         all_items: bool = typer.Option(False, "--all", help="Include blocked, completed, and abandoned items."),
         limit: int = typer.Option(1, "--limit", min=1, help="Number of candidates to rank."),
+        until_all_ranked: bool = typer.Option(
+            False,
+            "--until-all-ranked",
+            help="Keep ranking unranked eligible items, then stop before re-ranking existing items.",
+        ),
         randomize: bool = typer.Option(True, "--randomize/--no-randomize", help="Randomize pivots near the midpoint."),
     ) -> None:
         """Review bucket list items."""
@@ -29,14 +34,32 @@ def register(app: typer.Typer) -> None:
                 limit=limit,
                 randomize=randomize,
                 quiet=ctx.obj["json"],
+                until_all_ranked=until_all_ranked,
             )
         emit(ctx, [item.to_dict() for item in results], lambda console: console.print(f"Ranked {len(results)} item(s)."))
 
 
-def run_ranking_session(conn, *, horizon: str | None, include_all: bool, limit: int, randomize: bool, quiet: bool = False):
+def run_ranking_session(
+    conn,
+    *,
+    horizon: str | None,
+    include_all: bool,
+    limit: int,
+    randomize: bool,
+    quiet: bool = False,
+    until_all_ranked: bool = False,
+):
     ranked_results = []
-    for _ in range(limit):
-        candidate, is_rerank = queries.choose_ranking_candidate(conn, horizon=horizon, include_all=include_all)
+    skipped_item_ids: set[int] = set()
+    ranked_count = 0
+    while until_all_ranked or ranked_count < limit:
+        candidate, is_rerank = queries.choose_ranking_candidate(
+            conn,
+            horizon=horizon,
+            include_all=include_all,
+            allow_rerank=not until_all_ranked,
+            exclude_item_ids=skipped_item_ids,
+        )
         if candidate is None:
             if not quiet:
                 typer.echo("No eligible items to rank.")
@@ -51,23 +74,28 @@ def run_ranking_session(conn, *, horizon: str | None, include_all: bool, limit: 
             ranked = queries.insert_item_at_rank(conn, candidate.id, queries.max_rank(conn) + 1)
             assert ranked is not None
             ranked_results.append(ranked)
+            ranked_count += 1
             if not quiet:
                 typer.echo(f"Ranked '{ranked.title}' at #{ranked.rank}.")
             continue
 
         insertion_index = ask_for_insertion_index(conn, candidate, ranked_items, randomize=randomize)
+        if insertion_index == "skip":
+            skipped_item_ids.add(candidate.id)
+            continue
         if insertion_index is None:
             break
         target_rank = queries.target_rank_for_filtered_insert(conn, ranked_items, insertion_index)
         ranked = queries.insert_item_at_rank(conn, candidate.id, target_rank)
         assert ranked is not None
         ranked_results.append(ranked)
+        ranked_count += 1
         if not quiet:
             typer.echo(f"Ranked '{ranked.title}' at #{ranked.rank}.")
     return ranked_results
 
 
-def ask_for_insertion_index(conn, candidate, ranked_items, *, randomize: bool) -> int | None:
+def ask_for_insertion_index(conn, candidate, ranked_items, *, randomize: bool) -> int | str | None:
     low = 0
     high = len(ranked_items)
     while low < high:
@@ -80,7 +108,7 @@ def ask_for_insertion_index(conn, candidate, ranked_items, *, randomize: bool) -
         if answer in {"q", "quit"}:
             return None
         if answer in {"s", "skip"}:
-            continue
+            return "skip"
         if answer not in {"1", "2"}:
             typer.echo("Please choose 1, 2, skip, or quit.")
             continue

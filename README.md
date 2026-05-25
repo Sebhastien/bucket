@@ -16,5 +16,6 @@ uv run pytest
 uv run bucket --db ./bucket.sqlite add "Hike the Grand Canyon" --horizon soon --json
 uv run bucket --db ./bucket.sqlite list --all
 uv run bucket --db ./bucket.sqlite review --ranking
+uv run bucket --db ./bucket.sqlite review --ranking --until-all-ranked
 uv run bucket --db ./bucket.sqlite list --all --ranked
 ```

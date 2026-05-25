@@ -66,6 +66,17 @@ def test_ranking_candidate_falls_back_to_least_quizzed_ranked_item():
     assert is_rerank is True
 
 
+def test_ranking_candidate_can_disable_reranking():
+    conn = memory_conn()
+    first = queries.create_item(conn, title="First", horizon="now")
+    queries.insert_item_at_rank(conn, first.id, 1)
+
+    candidate, is_rerank = queries.choose_ranking_candidate(conn, allow_rerank=False)
+
+    assert candidate is None
+    assert is_rerank is False
+
+
 def test_insert_item_at_rank_shifts_existing_ranks():
     conn = memory_conn()
     first = queries.create_item(conn, title="First", horizon="now")

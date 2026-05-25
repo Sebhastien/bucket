@@ -77,7 +77,7 @@ def test_review_ranking_skip_does_not_increment_counts(tmp_path):
     assert invoke(db_path, "review", "--ranking").exit_code == 0
     assert invoke(db_path, "add", "Second").exit_code == 0
 
-    result = runner.invoke(app, ["--db", str(db_path), "review", "--ranking", "--no-randomize"], input="skip\nquit\n")
+    result = runner.invoke(app, ["--db", str(db_path), "review", "--ranking", "--no-randomize"], input="skip\n")
 
     assert result.exit_code == 0, result.output
     result = invoke(db_path, "list", "--all", "--ranked")
@@ -86,3 +86,23 @@ def test_review_ranking_skip_does_not_increment_counts(tmp_path):
         ("First", 1, 0),
         ("Second", None, 0),
     ]
+
+
+def test_review_ranking_until_all_ranked_stops_before_reranking(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    assert invoke(db_path, "add", "Third").exit_code == 0
+
+    result = runner.invoke(
+        app,
+        ["--db", str(db_path), "review", "--ranking", "--until-all-ranked", "--no-randomize"],
+        input="2\n2\n",
+    )
+
+    assert result.exit_code == 0, result.output
+    result = invoke(db_path, "list", "--all", "--ranked")
+    items = json.loads(result.output)
+    assert all(item["rank"] is not None for item in items)
+    assert sorted(item["rank"] for item in items) == [1, 2, 3]
+    assert sum(item["rank_quiz_count"] for item in items) == 4

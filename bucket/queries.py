@@ -167,21 +167,34 @@ def choose_ranking_candidate(
     *,
     horizon: str | None = None,
     include_all: bool = False,
+    allow_rerank: bool = True,
+    exclude_item_ids: set[int] | None = None,
 ) -> tuple[Item | None, bool]:
     """Return (candidate, is_rerank). Unranked eligible items are preferred."""
+    excluded = exclude_item_ids or set()
     where, params = ranking_eligibility_sql(horizon=horizon, include_all=include_all)
     clauses = ["rank IS NULL"]
     if where:
         clauses.append(where)
+    if excluded:
+        placeholders = ", ".join("?" for _ in excluded)
+        clauses.append(f"id NOT IN ({placeholders})")
+        params.extend(sorted(excluded))
     sql = "SELECT * FROM items WHERE " + " AND ".join(clauses) + " ORDER BY rank_quiz_count ASC, RANDOM() LIMIT 1"
     row = conn.execute(sql, params).fetchone()
     if row:
         return Item.from_row(row), False
+    if not allow_rerank:
+        return None, False
 
     where, params = ranking_eligibility_sql(horizon=horizon, include_all=include_all)
     clauses = ["rank IS NOT NULL"]
     if where:
         clauses.append(where)
+    if excluded:
+        placeholders = ", ".join("?" for _ in excluded)
+        clauses.append(f"id NOT IN ({placeholders})")
+        params.extend(sorted(excluded))
     sql = "SELECT * FROM items WHERE " + " AND ".join(clauses) + " ORDER BY rank_quiz_count ASC, RANDOM() LIMIT 1"
     row = conn.execute(sql, params).fetchone()
     return (Item.from_row(row), True) if row else (None, False)

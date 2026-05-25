@@ -97,6 +97,8 @@ def list_items(
         validate_status(status)
         clauses.append("i.status = ?")
         params.append(status)
+    elif not all_items:
+        clauses.append("i.status IN ('active', 'in_progress')")
     if tag:
         clauses.append(
             "EXISTS (SELECT 1 FROM item_tags it2 JOIN tags t2 ON t2.id = it2.tag_id WHERE it2.item_id = i.id AND t2.name = ?)"
@@ -128,14 +130,14 @@ def get_review_items(
 ) -> list[Item]:
     """Return items eligible for GTD review.
 
-    Defaults to active/in_progress items with horizon someday or soon.
+    Defaults to active/in_progress items with horizon soon, later, or waiting.
     If horizon is provided, filter to that horizon only.
     """
     if horizon:
         validate_horizon(horizon)
         horizons = [horizon]
     else:
-        horizons = ["someday", "soon"]
+        horizons = ["soon", "later", "waiting"]
 
     placeholders = ", ".join("?" for _ in horizons)
     clauses: list[str] = [f"i.horizon IN ({placeholders})"]
@@ -155,17 +157,35 @@ def get_review_items(
         ORDER BY CASE i.horizon
                      WHEN 'now' THEN 0
                      WHEN 'soon' THEN 1
-                     WHEN 'someday' THEN 2
-                     ELSE 3
+                     WHEN 'later' THEN 2
+                     WHEN 'waiting' THEN 3
+                     ELSE 4
                    END,
                  COALESCE(i.priority, 99), i.created_at DESC, i.id DESC
     """
     return [Item.from_row(row) for row in conn.execute(sql, params).fetchall()]
 
 
-def update_item(conn: sqlite3.Connection, item_id: int, **changes) -> Item | None:
+def update_item(
+    conn: sqlite3.Connection,
+    item_id: int,
+    *,
+    clear_fields: set[str] | None = None,
+    **changes,
+) -> Item | None:
     allowed = {"title", "description", "horizon", "priority", "target_date"}
+    nullable = {"description", "priority", "target_date"}
+    clear_fields = clear_fields or set()
+    unknown_clear_fields = clear_fields - nullable
+    if unknown_clear_fields:
+        raise ValueError(f"cannot clear fields: {', '.join(sorted(unknown_clear_fields))}")
+
     updates = {key: value for key, value in changes.items() if key in allowed and value is not None}
+    conflicts = clear_fields & updates.keys()
+    if conflicts:
+        raise ValueError(f"cannot set and clear fields: {', '.join(sorted(conflicts))}")
+    updates.update({field: None for field in clear_fields})
+
     if not updates:
         return get_item(conn, item_id)
     if "title" in updates and not str(updates["title"]).strip():
@@ -215,10 +235,22 @@ def ranking_eligibility_sql(*, horizon: str | None = None, include_all: bool = F
     if not include_all:
         clauses.extend([
             "status IN ('active', 'in_progress')",
-            "horizon != 'blocked'",
+            "horizon != 'waiting'",
             "blocked_by IS NULL",
         ])
     return " AND ".join(clauses), params
+
+
+def _items_with_tags_sql(where: str, order: str) -> str:
+    return f"""
+        SELECT i.*, GROUP_CONCAT(t.name) as tags
+        FROM items i
+        LEFT JOIN item_tags it ON it.item_id = i.id
+        LEFT JOIN tags t ON t.id = it.tag_id
+        WHERE {where}
+        GROUP BY i.id
+        ORDER BY {order}
+    """
 
 
 def get_ranked_items(
@@ -228,11 +260,34 @@ def get_ranked_items(
     include_all: bool = False,
 ) -> list[Item]:
     where, params = ranking_eligibility_sql(horizon=horizon, include_all=include_all)
-    clauses = ["rank IS NOT NULL"]
+    clauses = ["i.rank IS NOT NULL"]
+    if where:
+        clauses.append(f"i.id IN (SELECT id FROM items WHERE {where})")
+    sql = _items_with_tags_sql(" AND ".join(clauses), "i.rank ASC")
+    return [Item.from_row(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def _ranking_candidate_by_rank_state(
+    conn: sqlite3.Connection,
+    *,
+    rank_is_null: bool,
+    horizon: str | None,
+    include_all: bool,
+    excluded: set[int],
+) -> Item | None:
+    where, params = ranking_eligibility_sql(horizon=horizon, include_all=include_all)
+    clauses = ["rank IS NULL" if rank_is_null else "rank IS NOT NULL"]
     if where:
         clauses.append(where)
-    sql = "SELECT * FROM items WHERE " + " AND ".join(clauses) + " ORDER BY rank ASC"
-    return [Item.from_row(row) for row in conn.execute(sql, params).fetchall()]
+    if excluded:
+        placeholders = ", ".join("?" for _ in excluded)
+        clauses.append(f"id NOT IN ({placeholders})")
+        params.extend(sorted(excluded))
+    sql = "SELECT id FROM items WHERE " + " AND ".join(clauses) + " ORDER BY rank_quiz_count ASC, RANDOM() LIMIT 1"
+    row = conn.execute(sql, params).fetchone()
+    if row is None:
+        return None
+    return get_item(conn, int(row["id"]))
 
 
 def choose_ranking_candidate(
@@ -245,32 +300,26 @@ def choose_ranking_candidate(
 ) -> tuple[Item | None, bool]:
     """Return (candidate, is_rerank). Unranked eligible items are preferred."""
     excluded = exclude_item_ids or set()
-    where, params = ranking_eligibility_sql(horizon=horizon, include_all=include_all)
-    clauses = ["rank IS NULL"]
-    if where:
-        clauses.append(where)
-    if excluded:
-        placeholders = ", ".join("?" for _ in excluded)
-        clauses.append(f"id NOT IN ({placeholders})")
-        params.extend(sorted(excluded))
-    sql = "SELECT * FROM items WHERE " + " AND ".join(clauses) + " ORDER BY rank_quiz_count ASC, RANDOM() LIMIT 1"
-    row = conn.execute(sql, params).fetchone()
-    if row:
-        return Item.from_row(row), False
+    candidate = _ranking_candidate_by_rank_state(
+        conn,
+        rank_is_null=True,
+        horizon=horizon,
+        include_all=include_all,
+        excluded=excluded,
+    )
+    if candidate is not None:
+        return candidate, False
     if not allow_rerank:
         return None, False
 
-    where, params = ranking_eligibility_sql(horizon=horizon, include_all=include_all)
-    clauses = ["rank IS NOT NULL"]
-    if where:
-        clauses.append(where)
-    if excluded:
-        placeholders = ", ".join("?" for _ in excluded)
-        clauses.append(f"id NOT IN ({placeholders})")
-        params.extend(sorted(excluded))
-    sql = "SELECT * FROM items WHERE " + " AND ".join(clauses) + " ORDER BY rank_quiz_count ASC, RANDOM() LIMIT 1"
-    row = conn.execute(sql, params).fetchone()
-    return (Item.from_row(row), True) if row else (None, False)
+    candidate = _ranking_candidate_by_rank_state(
+        conn,
+        rank_is_null=False,
+        horizon=horizon,
+        include_all=include_all,
+        excluded=excluded,
+    )
+    return (candidate, True) if candidate is not None else (None, False)
 
 
 def increment_rank_quiz_counts(conn: sqlite3.Connection, item_ids: list[int]) -> None:
@@ -361,7 +410,7 @@ def block_item(conn: sqlite3.Connection, item_id: int, blocked_by_id: int) -> It
         raise ValueError("circular dependency detected")
     with conn:
         conn.execute(
-            "UPDATE items SET blocked_by = ?, horizon = 'blocked' WHERE id = ?",
+            "UPDATE items SET blocked_by = ?, horizon = 'waiting' WHERE id = ?",
             (blocked_by_id, item_id),
         )
     return get_item(conn, item_id)
@@ -387,6 +436,52 @@ def target_rank_for_filtered_insert(conn: sqlite3.Connection, ranked_items: list
         assert ranked_items[-1].rank is not None
         return ranked_items[-1].rank + 1
     return max_rank(conn) + 1
+
+
+def get_ranking_session(conn: sqlite3.Connection, candidate_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM ranking_sessions WHERE candidate_id = ?", (candidate_id,)).fetchone()
+
+
+def get_any_ranking_session(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM ranking_sessions ORDER BY updated_at DESC, candidate_id LIMIT 1").fetchone()
+
+
+def save_ranking_session(
+    conn: sqlite3.Connection,
+    *,
+    candidate_id: int,
+    low: int,
+    high: int,
+    pivot_id: int | None,
+    pivot_index: int | None,
+    horizon: str | None,
+    include_all: bool,
+    randomize: bool,
+) -> None:
+    if horizon:
+        validate_horizon(horizon)
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO ranking_sessions (
+                candidate_id, low, high, pivot_id, pivot_index, horizon, include_all, randomize
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(candidate_id) DO UPDATE SET
+                low = excluded.low,
+                high = excluded.high,
+                pivot_id = excluded.pivot_id,
+                pivot_index = excluded.pivot_index,
+                horizon = excluded.horizon,
+                include_all = excluded.include_all,
+                randomize = excluded.randomize
+            """,
+            (candidate_id, low, high, pivot_id, pivot_index, horizon, int(include_all), int(randomize)),
+        )
+
+
+def delete_ranking_session(conn: sqlite3.Connection, candidate_id: int) -> None:
+    with conn:
+        conn.execute("DELETE FROM ranking_sessions WHERE candidate_id = ?", (candidate_id,))
 
 
 def _normalize_tag_name(tag_name: str) -> str:
@@ -496,7 +591,15 @@ def get_stats(conn: sqlite3.Connection) -> dict:
         by_horizon[row["horizon"]] = int(row["c"])
 
     ranked_row = conn.execute("SELECT COUNT(*) FROM items WHERE rank IS NOT NULL").fetchone()
-    ranked = int(ranked_row[0])
+    ranked_total = int(ranked_row[0])
+
+    actionable_where, actionable_params = ranking_eligibility_sql(include_all=False)
+    actionable_row = conn.execute(f"SELECT COUNT(*) FROM items WHERE {actionable_where}", actionable_params).fetchone()
+    actionable_items = int(actionable_row[0])
+    ranked_actionable_row = conn.execute(
+        f"SELECT COUNT(*) FROM items WHERE rank IS NOT NULL AND {actionable_where}", actionable_params
+    ).fetchone()
+    ranked_actionable = int(ranked_actionable_row[0])
 
     blocked_row = conn.execute("SELECT COUNT(*) FROM items WHERE blocked_by IS NOT NULL").fetchone()
     blocked = int(blocked_row[0])
@@ -517,14 +620,25 @@ def get_stats(conn: sqlite3.Connection) -> dict:
     completed = by_status.get("completed", 0)
     completion_rate = round(completed / total, 4) if total else 0.0
 
+    # `total`, `ranked`, and `unranked` are backwards-compatible aliases.
+    # Prefer the explicit `*_items` / `*_total` / `*_actionable` keys in new callers.
     return {
         "total": total,
+        "total_items": total,
+        "actionable_items": actionable_items,
         "by_status": by_status,
         "by_horizon": by_horizon,
         "completion_rate": completion_rate,
-        "ranked": ranked,
-        "unranked": total - ranked,
+        "ranked": ranked_total,
+        "unranked": total - ranked_total,
+        "ranked_total": ranked_total,
+        "unranked_total": total - ranked_total,
+        "ranked_actionable": ranked_actionable,
+        "unranked_actionable": actionable_items - ranked_actionable,
         "blocked": blocked,
+        "waiting_items": by_horizon.get("waiting", 0),
+        "completed_items": by_status.get("completed", 0),
+        "no_longer_me_items": by_status.get("no_longer_me", 0),
         "by_tag": tags,
     }
 

@@ -46,7 +46,7 @@ def register(app: typer.Typer) -> None:
         all_items: bool = typer.Option(False, "--all"),
         ranked: bool = typer.Option(False, "--ranked", help="Sort by global rank."),
     ) -> None:
-        """List items. Defaults to horizon=now unless --all is used."""
+        """List actionable now items by default unless --all is used."""
         try:
             with get_conn(ctx) as conn:
                 items = queries.list_items(
@@ -77,13 +77,24 @@ def register(app: typer.Typer) -> None:
         desc: str | None = typer.Option(None, "--desc"),
         priority: int | None = typer.Option(None, "--priority"),
         date: str | None = typer.Option(None, "--date"),
+        clear_desc: bool = typer.Option(False, "--clear-desc", help="Clear the description."),
+        clear_priority: bool = typer.Option(False, "--clear-priority", help="Clear the priority."),
+        clear_date: bool = typer.Option(False, "--clear-date", help="Clear the target date."),
     ) -> None:
         """Edit item fields."""
         try:
             with get_conn(ctx) as conn:
+                clear_fields = set()
+                if clear_desc:
+                    clear_fields.add("description")
+                if clear_priority:
+                    clear_fields.add("priority")
+                if clear_date:
+                    clear_fields.add("target_date")
                 item = queries.update_item(
                     conn,
                     item_id,
+                    clear_fields=clear_fields,
                     title=title,
                     horizon=horizon,
                     description=desc,
@@ -117,15 +128,24 @@ def register(app: typer.Typer) -> None:
             if item is None:
                 fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
             if item.blocked_by is not None and not force:
-                fail(f"item is blocked by #{item.blocked_by}; use --force to override", EXIT_USER_ERROR)
+                fail(f"item is waiting on #{item.blocked_by}; use --force to override", EXIT_USER_ERROR)
             item = queries.set_status(conn, item_id, "completed")
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
+
+    @app.command("no-longer-me")
+    def no_longer_me(ctx: typer.Context, item_id: int) -> None:
+        """Mark an item as no longer aligned with you."""
+        with get_conn(ctx) as conn:
+            item = queries.set_status(conn, item_id, "no_longer_me")
+        if item is None:
+            fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
         emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()
     def abandon(ctx: typer.Context, item_id: int) -> None:
-        """Mark an item abandoned."""
+        """Deprecated alias for no-longer-me."""
         with get_conn(ctx) as conn:
-            item = queries.set_status(conn, item_id, "abandoned")
+            item = queries.set_status(conn, item_id, "no_longer_me")
         if item is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
         emit(ctx, item.to_dict(), lambda console: render_item(item, console))

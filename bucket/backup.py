@@ -27,6 +27,17 @@ ITEM_TAG_COLUMNS = ("item_id", "tag_id")
 NOTE_COLUMNS = ("id", "item_id", "body", "created_at")
 
 
+def _normalize_item_for_current_schema(item: dict) -> dict:
+    normalized = dict(item)
+    if normalized.get("horizon") == "someday":
+        normalized["horizon"] = "later"
+    elif normalized.get("horizon") == "blocked":
+        normalized["horizon"] = "waiting"
+    if normalized.get("status") == "abandoned":
+        normalized["status"] = "no_longer_me"
+    return normalized
+
+
 def dump_database(conn: sqlite3.Connection) -> dict:
     version = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()["version"]
     return {
@@ -79,6 +90,7 @@ def restore_database(conn: sqlite3.Connection, payload: dict) -> dict:
     notes = payload.get("notes", [])
     has_notes_in_backup = "notes" in payload
     with conn:
+        conn.execute("DELETE FROM ranking_sessions")
         conn.execute("DELETE FROM item_tags")
         if has_notes_in_backup:
             conn.execute("DELETE FROM notes")
@@ -86,6 +98,7 @@ def restore_database(conn: sqlite3.Connection, payload: dict) -> dict:
         conn.execute("DELETE FROM items")
         conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('items', 'tags', 'notes')")
         for item in items:
+            item = _normalize_item_for_current_schema(item)
             values = [item.get(column) for column in ITEM_COLUMNS]
             placeholders = ", ".join("?" for _ in ITEM_COLUMNS)
             conn.execute(

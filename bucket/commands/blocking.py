@@ -14,7 +14,7 @@ def register(app: typer.Typer) -> None:
         item_id: int,
         by: int = typer.Option(..., "--by", help="ID of the item that blocks this one."),
     ) -> None:
-        """Mark an item as blocked by another item."""
+        """Mark an item as waiting on another item."""
         try:
             with get_conn(ctx) as conn:
                 item = queries.block_item(conn, item_id, by)

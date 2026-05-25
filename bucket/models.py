@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-HORIZONS = ("now", "soon", "someday", "blocked")
-STATUSES = ("active", "in_progress", "completed", "abandoned")
+HORIZONS = ("now", "soon", "later", "waiting")
+STATUSES = ("active", "in_progress", "completed", "no_longer_me")
 
 
 @dataclass(frozen=True)

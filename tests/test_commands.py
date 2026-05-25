@@ -2,6 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
+from bucket import db
 from bucket.main import app
 
 runner = CliRunner()
@@ -43,6 +44,45 @@ def test_json_crud_contract(tmp_path):
     assert deleted["id"] == 1
 
 
+def test_edit_can_clear_optional_fields(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(
+        db_path,
+        "add",
+        "Clear me",
+        "--desc",
+        "old desc",
+        "--priority",
+        "3",
+        "--date",
+        "2030-01-01",
+    ).exit_code == 0
+
+    result = invoke(db_path, "edit", "1", "--clear-desc", "--clear-priority", "--clear-date")
+
+    assert result.exit_code == 0, result.output
+    item = json.loads(result.output)
+    assert item["description"] is None
+    assert item["priority"] is None
+    assert item["target_date"] is None
+
+
+
+def test_default_list_shows_only_actionable_now_items(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Active now", "--horizon", "now").exit_code == 0
+    assert invoke(db_path, "add", "Soon", "--horizon", "soon").exit_code == 0
+    assert invoke(db_path, "add", "Done now", "--horizon", "now").exit_code == 0
+    assert invoke(db_path, "done", "3").exit_code == 0
+
+    result = invoke(db_path, "list")
+
+    assert result.exit_code == 0, result.output
+    items = json.loads(result.output)
+    assert [item["title"] for item in items] == ["Active now"]
+
+
+
 def test_start_marks_item_in_progress(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "Build a canoe").exit_code == 0
@@ -69,7 +109,7 @@ def test_schema_json(tmp_path):
     result = invoke(tmp_path / "bucket.sqlite", "schema")
     assert result.exit_code == 0, result.output
     schema = json.loads(result.output)
-    assert schema["tables"]["items"]["horizon"] == ["now", "soon", "someday", "blocked"]
+    assert schema["tables"]["items"]["horizon"] == ["now", "soon", "later", "waiting"]
     assert "rank_quiz_count" in schema["tables"]["items"]
 
 
@@ -144,6 +184,96 @@ def test_review_ranking_inserts_unranked_item(tmp_path):
     items = json.loads(result.output)
     assert [(item["title"], item["rank"]) for item in items] == [("Second", 1), ("First", 2)]
     assert all(item["rank_quiz_count"] == 1 for item in items)
+
+
+def test_review_ranking_json_fails_cleanly_when_comparison_is_needed(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "review", "--ranking").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+
+    result = invoke(db_path, "review", "--ranking")
+
+    assert result.exit_code == 3
+    assert "Which would you rather" not in result.output
+
+
+
+def test_rank_next_and_rank_answer_json_flow(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First", "--tag", "base").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "add", "Second", "--tag", "new").exit_code == 0
+
+    result = invoke(db_path, "rank-next", "--no-randomize")
+    assert result.exit_code == 0, result.output
+    step = json.loads(result.output)
+    assert step["status"] == "comparison"
+    assert step["candidate"]["title"] == "Second"
+    assert step["candidate"]["tags"] == ["new"]
+    assert step["pivot"]["title"] == "First"
+    assert step["pivot"]["tags"] == ["base"]
+
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate",
+        str(step["candidate"]["id"]),
+        "--pivot",
+        str(step["pivot"]["id"]),
+        "--winner",
+        "candidate",
+    )
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.output)
+    assert answer["status"] == "ranked"
+    assert answer["item"]["title"] == "Second"
+    assert answer["item"]["rank"] == 1
+
+
+
+def test_rank_next_rejects_pending_session_with_different_filters(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First", "--horizon", "soon").exit_code == 0
+    assert invoke(db_path, "rank-next", "--horizon", "soon").exit_code == 0
+    assert invoke(db_path, "add", "Second", "--horizon", "soon").exit_code == 0
+    assert invoke(db_path, "rank-next", "--horizon", "soon", "--no-randomize").exit_code == 0
+
+    result = invoke(db_path, "rank-next", "--horizon", "now")
+
+    assert result.exit_code == 1
+    assert "different filters" in result.output
+
+
+
+def test_rank_answer_handles_missing_session_pivot_cleanly(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
+
+    conn = db.connect(db_path)
+    try:
+        with conn:
+            conn.execute("UPDATE ranking_sessions SET pivot_id = NULL")
+    finally:
+        conn.close()
+
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate",
+        str(step["candidate"]["id"]),
+        "--pivot",
+        str(step["pivot"]["id"]),
+        "--winner",
+        "candidate",
+    )
+
+    assert result.exit_code == 3
+    assert "pivot mismatch" in result.output
+
 
 
 def test_review_ranking_skip_does_not_increment_counts(tmp_path):
@@ -349,14 +479,14 @@ def test_block_and_unblock(tmp_path):
     assert result.exit_code == 0, result.output
     item = json.loads(result.output)
     assert item["blocked_by"] == 1
-    assert item["horizon"] == "blocked"
+    assert item["horizon"] == "waiting"
 
     result = invoke(db_path, "unblock", "2")
     assert result.exit_code == 0, result.output
     item = json.loads(result.output)
     assert item["blocked_by"] is None
     # unblock does not restore the original horizon; user edits manually
-    assert item["horizon"] == "blocked"
+    assert item["horizon"] == "waiting"
 
 
 def test_block_missing_item(tmp_path):
@@ -390,7 +520,7 @@ def test_stats_json_contract(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "A", "--horizon", "now").exit_code == 0
     assert invoke(db_path, "add", "B", "--horizon", "soon").exit_code == 0
-    assert invoke(db_path, "add", "C", "--horizon", "someday").exit_code == 0
+    assert invoke(db_path, "add", "C", "--horizon", "later").exit_code == 0
     assert invoke(db_path, "done", "1").exit_code == 0
 
     result = invoke(db_path, "stats")
@@ -401,15 +531,21 @@ def test_stats_json_contract(tmp_path):
     assert stats["by_status"]["active"] == 2
     assert stats["by_horizon"]["now"] == 1
     assert stats["by_horizon"]["soon"] == 1
-    assert stats["by_horizon"]["someday"] == 1
+    assert stats["by_horizon"]["later"] == 1
     assert abs(stats["completion_rate"] - 1 / 3) < 1e-4
     assert stats["ranked"] == 0
     assert stats["unranked"] == 3
     assert stats["blocked"] == 0
+    assert stats["actionable_items"] == 2
+    assert stats["ranked_actionable"] == 0
+    assert stats["unranked_actionable"] == 2
+    assert stats["waiting_items"] == 0
+    assert stats["completed_items"] == 1
+    assert stats["no_longer_me_items"] == 0
     assert stats["by_tag"] == []
 
 
-def test_stats_with_tags_and_blocked(tmp_path):
+def test_stats_with_tags_and_waiting(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "Get passport").exit_code == 0
     assert invoke(db_path, "add", "Travel to Japan", "--tag", "travel").exit_code == 0
@@ -420,7 +556,10 @@ def test_stats_with_tags_and_blocked(tmp_path):
     stats = json.loads(result.output)
     assert stats["total"] == 2
     assert stats["blocked"] == 1
-    assert stats["by_horizon"]["blocked"] == 1
+    assert stats["waiting_items"] == 1
+    assert stats["actionable_items"] == 1
+    assert stats["unranked_actionable"] == 1
+    assert stats["by_horizon"]["waiting"] == 1
     by_tag = {t["name"]: t["count"] for t in stats["by_tag"]}
     assert by_tag == {"travel": 1}
 
@@ -431,6 +570,9 @@ def test_stats_empty_database(tmp_path):
     assert result.exit_code == 0, result.output
     stats = json.loads(result.output)
     assert stats["total"] == 0
+    assert stats["total_items"] == 0
+    assert stats["actionable_items"] == 0
+    assert stats["unranked_actionable"] == 0
     assert stats["completion_rate"] == 0.0
 
 
@@ -443,7 +585,7 @@ def test_block_self(tmp_path):
     assert "itself" in result.output.lower()
 
 
-def test_done_blocked_requires_force(tmp_path):
+def test_done_waiting_requires_force(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "Get passport").exit_code == 0
     assert invoke(db_path, "add", "Travel to Japan").exit_code == 0
@@ -451,7 +593,7 @@ def test_done_blocked_requires_force(tmp_path):
 
     result = invoke(db_path, "done", "2")
     assert result.exit_code == 1
-    assert "blocked" in result.output.lower()
+    assert "waiting" in result.output.lower()
 
     result = invoke(db_path, "done", "2", "--force")
     assert result.exit_code == 0, result.output
@@ -461,7 +603,7 @@ def test_done_blocked_requires_force(tmp_path):
 
 def test_review_without_ranking_rejects_json(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
-    assert invoke(db_path, "add", "A", "--horizon", "someday").exit_code == 0
+    assert invoke(db_path, "add", "A", "--horizon", "later").exit_code == 0
 
     result = runner.invoke(app, ["--db", str(db_path), "--json", "review"])
     assert result.exit_code == 1
@@ -470,12 +612,12 @@ def test_review_without_ranking_rejects_json(tmp_path):
 
 def test_review_gtd_mutations_persist(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
-    assert invoke(db_path, "add", "A", "--horizon", "someday").exit_code == 0
+    assert invoke(db_path, "add", "A", "--horizon", "later").exit_code == 0
     assert invoke(db_path, "add", "B", "--horizon", "soon").exit_code == 0
 
     from unittest.mock import patch
 
-    prompts = iter(["n", "a", "quit"])
+    prompts = iter(["n", "x", "quit"])
     with patch("bucket.commands.review.typer.prompt", side_effect=lambda _: next(prompts)):
         result = runner.invoke(app, ["--db", str(db_path), "review"])
 
@@ -483,11 +625,11 @@ def test_review_gtd_mutations_persist(tmp_path):
     assert "Reviewed 2 item(s)" in result.output
 
     # Verify mutations persisted
-    # Review order is soon (B) first, then someday (A)
+    # Review order is soon (B) first, then later (A)
     a = json.loads(invoke(db_path, "show", "1").output)
     b = json.loads(invoke(db_path, "show", "2").output)
     assert b["horizon"] == "now"      # B got "n" -> now
-    assert a["status"] == "abandoned"   # A got "a" -> abandon
+    assert a["status"] == "no_longer_me"   # A got "a" -> no-longer-me
 
 
 def test_completion_show_bash():

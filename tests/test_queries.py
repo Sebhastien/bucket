@@ -38,7 +38,7 @@ def test_create_item_validates_input():
         raise AssertionError("empty title should fail")
 
     try:
-        queries.create_item(conn, title="Bad horizon", horizon="later")
+        queries.create_item(conn, title="Bad horizon", horizon="never")
     except ValueError as exc:
         assert "horizon must be one of" in str(exc)
     else:
@@ -52,27 +52,46 @@ def test_create_item_validates_input():
         raise AssertionError("bad priority should fail")
 
 
-def test_list_defaults_to_now():
+def test_list_defaults_to_actionable_now():
     conn = memory_conn()
     queries.create_item(conn, title="Now", horizon="now")
     queries.create_item(conn, title="Soon", horizon="soon")
+    queries.create_item(conn, title="Done Now", horizon="now")
+    queries.set_status(conn, 3, "completed")
 
     assert [item.title for item in queries.list_items(conn)] == ["Now"]
-    assert {item.title for item in queries.list_items(conn, all_items=True)} == {"Now", "Soon"}
+    assert {item.title for item in queries.list_items(conn, all_items=True)} == {"Now", "Soon", "Done Now"}
+
+
+def test_update_item_can_clear_optional_fields():
+    conn = memory_conn()
+    item = queries.create_item(conn, title="A", description="Desc", priority=3, target_date="2030-01-01")
+
+    updated = queries.update_item(
+        conn,
+        item.id,
+        clear_fields={"description", "priority", "target_date"},
+    )
+
+    assert updated is not None
+    assert updated.description is None
+    assert updated.priority is None
+    assert updated.target_date is None
+
 
 
 def test_ranking_candidate_prefers_unranked_eligible_items():
     conn = memory_conn()
     ranked = queries.create_item(conn, title="Ranked", horizon="now")
     unranked = queries.create_item(conn, title="Unranked", horizon="now")
-    blocked = queries.create_item(conn, title="Blocked", horizon="blocked")
+    waiting = queries.create_item(conn, title="Waiting", horizon="waiting")
     queries.insert_item_at_rank(conn, ranked.id, 1)
 
     candidate, is_rerank = queries.choose_ranking_candidate(conn)
 
     assert candidate == unranked
     assert is_rerank is False
-    assert blocked.rank is None
+    assert waiting.rank is None
 
 
 def test_ranking_candidate_falls_back_to_least_quizzed_ranked_item():
@@ -250,13 +269,13 @@ def test_search_escapes_like_wildcards():
 def test_block_item_sets_blocked_by_and_horizon():
     conn = memory_conn()
     blocker = queries.create_item(conn, title="Get passport")
-    blocked = queries.create_item(conn, title="Travel to Japan")
+    waiting = queries.create_item(conn, title="Travel to Japan")
 
-    updated = queries.block_item(conn, blocked.id, blocker.id)
+    updated = queries.block_item(conn, waiting.id, blocker.id)
 
     assert updated is not None
     assert updated.blocked_by == blocker.id
-    assert updated.horizon == "blocked"
+    assert updated.horizon == "waiting"
 
 
 def test_block_item_returns_none_for_missing_item():
@@ -269,10 +288,10 @@ def test_block_item_returns_none_for_missing_item():
 
 def test_block_item_raises_for_missing_blocker():
     conn = memory_conn()
-    blocked = queries.create_item(conn, title="Travel to Japan")
+    waiting = queries.create_item(conn, title="Travel to Japan")
 
     try:
-        queries.block_item(conn, blocked.id, 999)
+        queries.block_item(conn, waiting.id, 999)
     except ValueError as exc:
         assert "blocker not found" in str(exc)
     else:
@@ -298,15 +317,15 @@ def test_circular_dependency_detected():
 def test_unblock_item_clears_blocked_by():
     conn = memory_conn()
     blocker = queries.create_item(conn, title="Get passport")
-    blocked = queries.create_item(conn, title="Travel to Japan")
-    queries.block_item(conn, blocked.id, blocker.id)
+    waiting = queries.create_item(conn, title="Travel to Japan")
+    queries.block_item(conn, waiting.id, blocker.id)
 
-    updated = queries.unblock_item(conn, blocked.id)
+    updated = queries.unblock_item(conn, waiting.id)
 
     assert updated is not None
     assert updated.blocked_by is None
     # horizon is left as-is; user must edit if they want to change it
-    assert updated.horizon == "blocked"
+    assert updated.horizon == "waiting"
 
 
 def test_unblock_item_returns_none_for_missing_item():
@@ -330,11 +349,11 @@ def test_self_blocking_is_rejected():
 def test_delete_blocking_item_nullifies_dependents():
     conn = memory_conn()
     blocker = queries.create_item(conn, title="Get passport")
-    blocked = queries.create_item(conn, title="Travel to Japan")
-    queries.block_item(conn, blocked.id, blocker.id)
+    waiting = queries.create_item(conn, title="Travel to Japan")
+    queries.block_item(conn, waiting.id, blocker.id)
 
     queries.delete_item(conn, blocker.id)
-    item = queries.get_item(conn, blocked.id)
+    item = queries.get_item(conn, waiting.id)
 
     assert item is not None
     assert item.blocked_by is None
@@ -386,12 +405,21 @@ def test_get_stats_empty_database():
     stats = queries.get_stats(conn)
     assert stats == {
         "total": 0,
-        "by_status": {"active": 0, "in_progress": 0, "completed": 0, "abandoned": 0},
-        "by_horizon": {"now": 0, "soon": 0, "someday": 0, "blocked": 0},
+        "total_items": 0,
+        "actionable_items": 0,
+        "by_status": {"active": 0, "in_progress": 0, "completed": 0, "no_longer_me": 0},
+        "by_horizon": {"now": 0, "soon": 0, "later": 0, "waiting": 0},
         "completion_rate": 0.0,
         "ranked": 0,
         "unranked": 0,
+        "ranked_total": 0,
+        "unranked_total": 0,
+        "ranked_actionable": 0,
+        "unranked_actionable": 0,
         "blocked": 0,
+        "waiting_items": 0,
+        "completed_items": 0,
+        "no_longer_me_items": 0,
         "by_tag": [],
     }
 
@@ -400,7 +428,7 @@ def test_get_stats_reflects_items_and_tags():
     conn = memory_conn()
     queries.create_item(conn, title="A", horizon="now")
     queries.create_item(conn, title="B", horizon="soon")
-    queries.create_item(conn, title="C", horizon="someday")
+    queries.create_item(conn, title="C", horizon="later")
     queries.set_status(conn, 1, "completed")
     queries.add_tag_to_item(conn, 1, "travel")
     queries.add_tag_to_item(conn, 2, "travel")
@@ -408,16 +436,21 @@ def test_get_stats_reflects_items_and_tags():
 
     stats = queries.get_stats(conn)
     assert stats["total"] == 3
-    assert stats["by_status"] == {"active": 2, "in_progress": 0, "completed": 1, "abandoned": 0}
-    assert stats["by_horizon"] == {"now": 1, "soon": 1, "someday": 1, "blocked": 0}
+    assert stats["by_status"] == {"active": 2, "in_progress": 0, "completed": 1, "no_longer_me": 0}
+    assert stats["by_horizon"] == {"now": 1, "soon": 1, "later": 1, "waiting": 0}
     assert abs(stats["completion_rate"] - 1 / 3) < 1e-4
     assert stats["ranked"] == 0
     assert stats["unranked"] == 3
     assert stats["blocked"] == 0
+    assert stats["actionable_items"] == 2
+    assert stats["unranked_actionable"] == 2
+    assert stats["waiting_items"] == 0
+    assert stats["completed_items"] == 1
+    assert stats["no_longer_me_items"] == 0
     assert {t["name"]: t["count"] for t in stats["by_tag"]} == {"travel": 2, "adventure": 1}
 
 
-def test_get_stats_with_ranked_and_blocked():
+def test_get_stats_with_ranked_and_waiting():
     conn = memory_conn()
     queries.create_item(conn, title="A", horizon="now")
     queries.create_item(conn, title="B", horizon="now")
@@ -429,7 +462,11 @@ def test_get_stats_with_ranked_and_blocked():
     assert stats["ranked"] == 1
     assert stats["unranked"] == 1
     assert stats["blocked"] == 1
-    assert stats["by_horizon"]["blocked"] == 1
+    assert stats["waiting_items"] == 1
+    assert stats["actionable_items"] == 1
+    assert stats["ranked_actionable"] == 1
+    assert stats["unranked_actionable"] == 0
+    assert stats["by_horizon"]["waiting"] == 1
 
 
 def test_add_tag_rejects_comma():
@@ -447,25 +484,25 @@ def test_get_review_items_defaults():
     conn = memory_conn()
     queries.create_item(conn, title="A", horizon="now")
     queries.create_item(conn, title="B", horizon="soon")
-    queries.create_item(conn, title="C", horizon="someday")
-    queries.create_item(conn, title="D", horizon="blocked")
-    queries.create_item(conn, title="E", horizon="someday")
+    queries.create_item(conn, title="C", horizon="later")
+    queries.create_item(conn, title="D", horizon="waiting")
+    queries.create_item(conn, title="E", horizon="later")
     queries.set_status(conn, 5, "completed")
 
     items = queries.get_review_items(conn)
     titles = [i.title for i in items]
-    assert titles == ["B", "C"]
+    assert titles == ["B", "C", "D"]
 
 
 def test_get_review_items_by_horizon():
     conn = memory_conn()
     queries.create_item(conn, title="A", horizon="soon")
-    queries.create_item(conn, title="B", horizon="someday")
+    queries.create_item(conn, title="B", horizon="later")
 
     items = queries.get_review_items(conn, horizon="soon")
     assert [i.title for i in items] == ["A"]
 
-    items = queries.get_review_items(conn, horizon="someday")
+    items = queries.get_review_items(conn, horizon="later")
     assert [i.title for i in items] == ["B"]
 
 

@@ -47,11 +47,13 @@ def render_stats(data: dict, console: Console) -> None:
     summary = Table.grid(padding=(0, 2))
     summary.add_column(style="bold")
     summary.add_column()
-    summary.add_row("Total items:", str(data["total"]))
+    summary.add_row("Total items:", str(data["total_items"]))
+    summary.add_row("Actionable items:", str(data["actionable_items"]))
     summary.add_row("Completion rate:", f"{data['completion_rate']:.1%}")
-    summary.add_row("Ranked:", str(data["ranked"]))
-    summary.add_row("Unranked:", str(data["unranked"]))
-    summary.add_row("Blocked:", str(data["blocked"]))
+    summary.add_row("Ranked actionable:", str(data["ranked_actionable"]))
+    summary.add_row("Unranked actionable:", str(data["unranked_actionable"]))
+    summary.add_row("Waiting:", str(data["waiting_items"]))
+    summary.add_row("Blocked by dependency:", str(data["blocked"]))
     console.print(Panel(summary, title="Bucket Stats"))
 
     # Status breakdown

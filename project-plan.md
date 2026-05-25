@@ -11,7 +11,7 @@ A command-line tool for managing a personal bucket list backed by a local SQLite
 ### In Scope
 
 - Create, read, update, delete bucket list items via CLI
-- Horizon system: `now`, `soon`, `someday`, `blocked`
+- Horizon system: `now`, `soon`, `later`, `waiting`
 - Dependency tracking: items can be blocked by other items (self-referencing FK)
 - Tagging for flexible categorization
 - Rich terminal output (colored tables, item detail views)
@@ -38,8 +38,8 @@ A command-line tool for managing a personal bucket list backed by a local SQLite
 | `id` | INTEGER PK | Auto-increment |
 | `title` | TEXT NOT NULL | Short name of the item |
 | `description` | TEXT | Optional longer description |
-| `status` | TEXT | `active`, `in_progress`, `completed`, `abandoned` |
-| `horizon` | TEXT | `now`, `soon`, `someday`, `blocked` |
+| `status` | TEXT | `active`, `in_progress`, `completed`, `no_longer_me` |
+| `horizon` | TEXT | `now`, `soon`, `later`, `waiting` |
 | `blocked_by` | INTEGER FK | Self-reference to `items.id`, nullable |
 | `category` | TEXT | Optional free-text category |
 | `priority` | INTEGER | 1–5 scale, nullable |
@@ -83,16 +83,16 @@ Single-row table storing the current schema version integer. Used by the migrati
 
 These are intentionally separate columns, not a single combined field.
 
-- **Horizon** answers "when do I intend to act on this?" (`now`, `soon`, `someday`, `blocked`)
-- **Status** answers "what is the lifecycle state?" (`active`, `in_progress`, `completed`, `abandoned`)
+- **Horizon** answers "when do I intend to act on this?" (`now`, `soon`, `later`, `waiting`)
+- **Status** answers "what is the lifecycle state?" (`active`, `in_progress`, `completed`, `no_longer_me`)
 
-This allows meaningful combinations like: `horizon=now, status=in_progress` (actively working on it now) or `horizon=someday, status=active` (want to do it, no immediate timeline).
+This allows meaningful combinations like: `horizon=now, status=in_progress` (actively working on it now) or `horizon=later, status=active` (want to do it, no immediate timeline).
 
 ### Blocked-By as Self-Referencing FK
 
 `blocked_by` stores the `id` of the item that must be completed first. This enables dependency chains. Key decisions:
 
-- `horizon` should be auto-set to `blocked` when `blocked_by` is populated, but the column is still stored separately so it can be overridden.
+- `horizon` should be auto-set to `waiting` when `blocked_by` is populated, but dependency blocking remains separate from the user-facing waiting horizon.
 - On delete of a blocking item: **nullify** the `blocked_by` field on dependent items (not cascade delete). This is the safest default — the item still exists, it just becomes unblocked.
 - Circular dependency detection must be enforced at the application layer (SQLite does not enforce this natively).
 
@@ -101,13 +101,13 @@ This allows meaningful combinations like: `horizon=now, status=in_progress` (act
 ## Command Surface
 
 ```
-bucket add "<title>" [--horizon now|soon|someday] [--desc "..."] [--tag adventure] [--priority 3] [--date 2027-01-01]
-bucket list [--horizon now|soon|someday|blocked] [--tag <name>] [--status active|completed] [--all]
+bucket add "<title>" [--horizon now|soon|later|waiting] [--desc "..."] [--tag adventure] [--priority 3] [--date 2027-01-01]
+bucket list [--horizon now|soon|later|waiting] [--tag <name>] [--status active|completed|no_longer_me] [--all]
 bucket show <id>
-bucket edit <id> [--title "..."] [--horizon ...] [--desc "..."] [--priority ...] [--date ...]
+bucket edit <id> [--title "..."] [--horizon ...] [--desc "..."] [--priority ...] [--date ...] [--clear-desc] [--clear-priority] [--clear-date]
 bucket start <id>
 bucket done <id>
-bucket abandon <id>
+bucket no-longer-me <id>
 bucket delete <id> [--confirm]
 bucket block <id> --by <blocking-id>
 bucket unblock <id>
@@ -116,7 +116,9 @@ bucket tag add <id> <tag>
 bucket tag remove <id> <tag>
 bucket tags                          # list all tags and item counts
 bucket search "<query>"              # fuzzy title/description search
-bucket review                        # interactive GTD-style review of someday items
+bucket review                        # interactive GTD-style review of soon/later/waiting items
+bucket rank-next                     # JSON-friendly next ranking comparison
+bucket rank-answer --candidate <id> --pivot <id> --winner candidate|pivot|skip
 bucket stats                         # completion rate, breakdown by horizon/tag
 bucket export [--format csv|markdown]
 bucket backup [--dest <path>]
@@ -170,7 +172,7 @@ bucketlist-cli/
 │   ├── models.py        # Dataclasses for Item, Tag, Note
 │   ├── queries.py       # All SQL query functions (no business logic)
 │   ├── commands/
-│   │   ├── items.py     # add, list, show, edit, done, abandon, delete
+│   │   ├── items.py     # add, list, show, edit, done, no-longer-me, delete
 │   │   ├── blocking.py  # block, unblock
 │   │   ├── tags.py      # tag add/remove, tags list
 │   │   ├── notes.py     # note
@@ -230,12 +232,12 @@ This is intentionally simple — no down-migrations, no branching. Only additive
 |----------|----------|
 | Delete an item that blocks others | Nullify `blocked_by` on dependents; do not cascade delete |
 | Re-open a completed item | Allowed — set `status=active`, clear `completed_at`, preserve `horizon` |
-| `block` without `--by` | Rejected with a clear error — `blocked` horizon requires a blocking item |
+| `block` without `--by` | Rejected with a clear error — dependency blocking requires a blocker item |
 | Circular dependency (A blocks B blocks A) | Detected at application layer before write; rejected with error |
-| `done` on a blocked item | Warn user that item is still marked as blocked by another; require `--force` to override |
+| `done` on an item with `blocked_by` | Warn user that item is waiting on another; require `--force` to override |
 | Missing `--confirm` on delete | Interactive prompt: "Delete 'Hike the Grand Canyon'? [y/N]" |
-| `bucket list` with no filters | Show `horizon=now` items by default; use `--all` for everything |
-| Pairwise ranking default pool | Focus on unblocked, incomplete items: `status IN ('active', 'in_progress')`, `horizon != 'blocked'`, and `blocked_by IS NULL` |
+| `bucket list` with no filters | Show actionable `horizon=now` items (`active`, `in_progress`) by default; use `--all` for everything |
+| Pairwise ranking default pool | Focus on unblocked, incomplete items: `status IN ('active', 'in_progress')`, `horizon != 'waiting'`, and `blocked_by IS NULL` |
 | Ranking scope | Ranking is global, but review sessions can filter to a horizon section |
 | Skipped ranking comparison | Do not increment quiz counters and do not change rank |
 
@@ -253,7 +255,7 @@ bucket review --ranking --until-all-ranked
 bucket review --ranking --no-randomize
 ```
 
-Ranking is a separate global ordering from the manual `priority` field. Lower `rank` values are better: rank `1` is the item the user cares about most / would rather do sooner. Sessions can be filtered by horizon so the user can rank within a section without constantly comparing `now` items against `someday` items.
+Ranking is a separate global ordering from the manual `priority` field. Lower `rank` values are better: rank `1` is the item the user cares about most / would rather do sooner. Sessions can be filtered by horizon so the user can rank within a section without constantly comparing `now` items against `later` items.
 
 ### Ranking Data
 
@@ -300,7 +302,7 @@ Agent use is the primary concern, so the agent-facing surface (`--json`, stable 
 - [ ] `db.py`: connection, PRAGMAs, migration runner
 - [ ] `001_initial_schema.sql`: items + tags + item_tags tables
 - [ ] `queries.py`: insert, select, update, delete for items
-- [ ] `commands/items.py`: `add`, `list`, `show`, `edit`, `delete`, `start`, `done`, `abandon`
+- [ ] `commands/items.py`: `add`, `list`, `show`, `edit`, `delete`, `start`, `done`, `no-longer-me`
 - [ ] **`--json` global flag wired from day one** — every read command emits JSON; every mutation returns the resulting object as JSON
 - [ ] **Stable exit codes**: 0 success, 1 user error, 2 not found, 3 conflict (e.g. circular dep)
 - [ ] **`bucket schema --json`**: dumps data model + enum values (`horizon`, `status`) so agents can introspect
@@ -321,7 +323,7 @@ Agent use is the primary concern, so the agent-facing surface (`--json`, stable 
 - [ ] `queries.py`: blocking queries, tag queries
 - [ ] `commands/blocking.py`: `block`, `unblock` with circular dependency detection (exit code 3)
 - [ ] `commands/tags.py`: `tag`, `untag`, `tags` (flat verbs to match `block`/`unblock`)
-- [ ] `--tag` and `--blocked` filters on `bucket list`
+- [ ] `--tag`, `--horizon waiting`, and `--status no_longer_me` filters on `bucket list`
 - [ ] `002_add_notes_table.sql` migration
 - [ ] `commands/notes.py`: `note`
 - [ ] `commands/items.py`: `search` with `LIKE` query
@@ -350,7 +352,7 @@ Agent use is the primary concern, so the agent-facing surface (`--json`, stable 
 
 - **Unit tests** (`tests/test_queries.py`): test all SQL query functions against an in-memory SQLite database (`":memory:"`)
 - **Integration tests** (`tests/test_commands.py`): use Typer's `CliRunner` to invoke commands end-to-end against a temp file database
-- **Edge case coverage**: circular dependency detection, nullify-on-delete behavior, re-open completed items, blocked item `done` with and without `--force`
+- **Edge case coverage**: circular dependency detection, nullify-on-delete behavior, re-open completed items, waiting/dependency item `done` with and without `--force`
 
 ---
 

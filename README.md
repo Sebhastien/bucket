@@ -6,10 +6,10 @@ The project is intentionally lightweight: Python, Typer, Rich, and the standard-
 
 ## Features
 
-- Add, list, show, edit, complete, abandon, and delete bucket list items
+- Add, list, show, edit, complete, mark no-longer-me, and delete bucket list items
 - Local SQLite database with automatic migrations
-- Horizon planning: `now`, `soon`, `someday`, `blocked`
-- Lifecycle statuses: `active`, `in_progress`, `completed`, `abandoned`
+- Horizon planning: `now`, `soon`, `later`, `waiting`
+- Lifecycle statuses: `active`, `in_progress`, `completed`, `no_longer_me`
 - Dependency blocking: mark items as blocked by other items
 - Tagging for flexible categorization
 - Notes on individual items
@@ -17,7 +17,7 @@ The project is intentionally lightweight: Python, Typer, Rich, and the standard-
 - Rich human-readable terminal output
 - `--json` output for scripting and agent workflows
 - Stable database override via `--db`
-- Interactive GTD-style review for keeping, promoting, completing, or abandoning items
+- Interactive GTD-style review for keeping, moving horizons, completing, or marking items no-longer-me
 - Pairwise ranking review with binary-search insertion
 - `--until-all-ranked` mode to rank every unranked eligible item
 - JSON backup and restore
@@ -54,7 +54,7 @@ Add a few items:
 ```bash
 uv run bucket add "Visit Japan" --horizon soon
 uv run bucket add "Hike the Grand Canyon" --horizon now
-uv run bucket add "Learn scuba diving" --horizon someday
+uv run bucket add "Learn scuba diving" --horizon later
 ```
 
 List items:
@@ -84,7 +84,7 @@ uv run bucket add "Hike the Grand Canyon" \
 
 ### List items
 
-By default, `list` shows `now` items only:
+By default, `list` shows actionable `now` items only (`active` or `in_progress`):
 
 ```bash
 uv run bucket list
@@ -119,14 +119,15 @@ uv run bucket show 1
 
 ```bash
 uv run bucket edit 1 --title "Hike Grand Canyon rim-to-rim" --horizon now
+uv run bucket edit 1 --clear-desc --clear-priority --clear-date
 ```
 
-### Start, complete, or abandon an item
+### Start, complete, or mark an item no-longer-me
 
 ```bash
 uv run bucket start 1
 uv run bucket done 1
-uv run bucket abandon 2
+uv run bucket no-longer-me 2
 ```
 
 ### Delete an item
@@ -139,7 +140,7 @@ Without `--confirm`, the CLI prompts before deleting.
 
 ### Block and unblock items
 
-Mark an item as blocked by another:
+Mark an item as waiting on another:
 
 ```bash
 uv run bucket block 2 --by 1
@@ -195,7 +196,7 @@ Show aggregate statistics and breakdowns:
 uv run bucket stats
 ```
 
-Output includes total items, completion rate, counts by status and horizon, ranked vs. unranked items, blocked items, and tag counts.
+Output includes total items, actionable items, completion rate, counts by status and horizon, total and actionable ranked/unranked counts, waiting items, dependency-blocked items, and tag counts.
 
 For scripting and agent use:
 
@@ -205,22 +206,22 @@ uv run bucket --json stats
 
 ## GTD Review
 
-Run an interactive review for active or in-progress `soon` and `someday` items:
+Run an interactive review for active or in-progress `soon`, `later`, and `waiting` items:
 
 ```bash
 uv run bucket review
 ```
 
-For each item, choose whether to keep it, promote it to `now` or `soon`, mark it done, abandon it, skip it, or quit. Mutations are saved after each answer, so progress is preserved if you quit mid-session.
+For each item, choose whether to keep it, move it to `now`, `soon`, `later`, or `waiting`, mark it done, mark it no-longer-me, skip it, or quit. Mutations are saved after each answer, so progress is preserved if you quit mid-session.
 
 Filter the review scope:
 
 ```bash
-uv run bucket review --horizon someday
+uv run bucket review --horizon later
 uv run bucket review --all
 ```
 
-GTD review is interactive and does not support global `--json`; use `review --ranking` for JSON-compatible review output.
+GTD review is interactive and does not support global `--json`; use `rank-next` and `rank-answer` for agent-friendly ranking workflows.
 
 ## Pairwise Ranking Review
 
@@ -284,10 +285,19 @@ Use strict midpoint binary search instead of randomized pivots:
 uv run bucket review --ranking --no-randomize
 ```
 
+Agent-friendly JSON ranking uses non-interactive steps:
+
+```bash
+uv run bucket --json rank-next
+uv run bucket --json rank-answer --candidate 3 --pivot 1 --winner candidate
+```
+
+`rank-next` returns either `{"status":"comparison", "candidate": ..., "pivot": ...}` or `{"status":"ranked", "item": ...}` when no comparison is needed. `rank-answer` accepts `candidate`, `pivot`, or `skip` as `--winner`. Pending comparisons must be answered or skipped before starting a `rank-next` call with different filters.
+
 By default, ranking focuses on unblocked, incomplete items:
 
 - `status` is `active` or `in_progress`
-- `horizon` is not `blocked`
+- `horizon` is not `waiting`
 - `blocked_by` is empty
 
 Include all items manually:
@@ -445,15 +455,16 @@ Implemented:
 - Rich terminal rendering
 - Tags, notes, and blocking commands
 - Fuzzy search
-- Stats with completion rate and breakdowns
+- Stats with actionable/rankable breakdowns
+- Interactive GTD review
 - Pairwise ranking review
+- Agent-friendly `rank-next` / `rank-answer`
 - `--until-all-ranked`
 - JSON backup and restore
 - Automated tests
 
 Planned next:
 
-- Interactive GTD review (non-ranking)
 - CSV/Markdown export
 
 ## License

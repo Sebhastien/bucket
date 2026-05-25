@@ -105,6 +105,7 @@ bucket add "<title>" [--horizon now|soon|someday] [--desc "..."] [--tag adventur
 bucket list [--horizon now|soon|someday|blocked] [--tag <name>] [--status active|completed] [--all]
 bucket show <id>
 bucket edit <id> [--title "..."] [--horizon ...] [--desc "..."] [--priority ...] [--date ...]
+bucket start <id>
 bucket done <id>
 bucket abandon <id>
 bucket delete <id> [--confirm]
@@ -299,7 +300,7 @@ Agent use is the primary concern, so the agent-facing surface (`--json`, stable 
 - [ ] `db.py`: connection, PRAGMAs, migration runner
 - [ ] `001_initial_schema.sql`: items + tags + item_tags tables
 - [ ] `queries.py`: insert, select, update, delete for items
-- [ ] `commands/items.py`: `add`, `list`, `show`, `edit`, `delete`, `done`, `abandon`
+- [ ] `commands/items.py`: `add`, `list`, `show`, `edit`, `delete`, `start`, `done`, `abandon`
 - [ ] **`--json` global flag wired from day one** — every read command emits JSON; every mutation returns the resulting object as JSON
 - [ ] **Stable exit codes**: 0 success, 1 user error, 2 not found, 3 conflict (e.g. circular dep)
 - [ ] **`bucket schema --json`**: dumps data model + enum values (`horizon`, `status`) so agents can introspect

@@ -73,6 +73,32 @@ def test_schema_json(tmp_path):
     assert "rank_quiz_count" in schema["tables"]["items"]
 
 
+def test_backup_restore_round_trip(tmp_path):
+    source_db = tmp_path / "source.sqlite"
+    restored_db = tmp_path / "restored.sqlite"
+    backup_file = tmp_path / "backup.json"
+
+    assert invoke(source_db, "add", "Visit Japan", "--horizon", "soon", "--priority", "2").exit_code == 0
+    assert invoke(source_db, "add", "Hike Grand Canyon", "--horizon", "now").exit_code == 0
+    assert invoke(source_db, "start", "2").exit_code == 0
+    assert invoke(source_db, "review", "--ranking").exit_code == 0
+
+    result = invoke(source_db, "backup", "--dest", str(backup_file))
+    assert result.exit_code == 0, result.output
+    backup_result = json.loads(result.output)
+    assert backup_result["path"] == str(backup_file)
+    assert backup_file.exists()
+
+    result = invoke(restored_db, "restore", str(backup_file))
+    assert result.exit_code == 0, result.output
+    restore_result = json.loads(result.output)
+    assert restore_result["items"] == 2
+
+    source_items = json.loads(invoke(source_db, "list", "--all", "--ranked").output)
+    restored_items = json.loads(invoke(restored_db, "list", "--all", "--ranked").output)
+    assert restored_items == source_items
+
+
 def test_review_ranking_inserts_unranked_item(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "First").exit_code == 0

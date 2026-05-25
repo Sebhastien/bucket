@@ -15,6 +15,7 @@ The project is intentionally lightweight: Python, Typer, Rich, and the standard-
 - Stable database override via `--db`
 - Pairwise ranking review with binary-search insertion
 - `--until-all-ranked` mode to rank every unranked eligible item
+- JSON backup and restore
 
 ## Requirements
 
@@ -211,6 +212,22 @@ View ranked output:
 uv run bucket list --all --ranked
 ```
 
+## Backup and Restore
+
+Create a JSON backup:
+
+```bash
+uv run bucket backup --dest ./bucket-backup.json
+```
+
+Restore into a database:
+
+```bash
+uv run bucket --db ./restored.sqlite restore ./bucket-backup.json
+```
+
+Backups currently include items, tags, item-tag relationships, ranks, quiz counts, and timestamps.
+
 ## JSON Output
 
 Most commands support JSON for scripting. Because `--json` is a global Typer option, place it before the subcommand:
@@ -305,6 +322,7 @@ Implemented:
 - Rich terminal rendering
 - Pairwise ranking review
 - `--until-all-ranked`
+- JSON backup and restore
 - Automated tests
 
 Planned next:

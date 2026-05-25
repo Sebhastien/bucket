@@ -327,7 +327,6 @@ Implemented:
 
 Planned next:
 
-- Backup and restore
 - Tags and notes
 - Blocking commands
 - CSV/Markdown export
@@ -335,4 +334,4 @@ Planned next:
 
 ## License
 
-No license has been selected yet.
+This project is licensed under the GNU General Public License v3.0. See [`LICENSE`](./LICENSE) for details.

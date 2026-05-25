@@ -7,10 +7,6 @@ from bucket.display import render_item, render_items
 from bucket.main import EXIT_NOT_FOUND, emit, fail, get_conn
 
 
-def item_payload(item):
-    return item.to_dict()
-
-
 def register(app: typer.Typer) -> None:
     @app.command()
     def add(
@@ -20,6 +16,7 @@ def register(app: typer.Typer) -> None:
         desc: str | None = typer.Option(None, "--desc"),
         priority: int | None = typer.Option(None, "--priority"),
         date: str | None = typer.Option(None, "--date"),
+        tag: list[str] = typer.Option([], "--tag"),
     ) -> None:
         """Add a bucket list item."""
         try:
@@ -32,25 +29,32 @@ def register(app: typer.Typer) -> None:
                     priority=priority,
                     target_date=date,
                 )
+                for t in tag:
+                    queries.add_tag_to_item(conn, item.id, t)
+                item = queries.get_item(conn, item.id)
+                assert item is not None
         except ValueError as exc:
             fail(str(exc))
-        emit(ctx, item_payload(item), lambda console: render_item(item, console))
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command("list")
     def list_command(
         ctx: typer.Context,
         horizon: str | None = typer.Option(None, "--horizon"),
         status: str | None = typer.Option(None, "--status"),
+        tag: str | None = typer.Option(None, "--tag"),
         all_items: bool = typer.Option(False, "--all"),
         ranked: bool = typer.Option(False, "--ranked", help="Sort by global rank."),
     ) -> None:
         """List items. Defaults to horizon=now unless --all is used."""
         try:
             with get_conn(ctx) as conn:
-                items = queries.list_items(conn, horizon=horizon, status=status, all_items=all_items, ranked=ranked)
+                items = queries.list_items(
+                    conn, horizon=horizon, status=status, tag=tag, all_items=all_items, ranked=ranked
+                )
         except ValueError as exc:
             fail(str(exc))
-        emit(ctx, [item_payload(item) for item in items], lambda console: render_items(items, console))
+        emit(ctx, [item.to_dict() for item in items], lambda console: render_items(items, console))
 
     @app.command()
     def show(ctx: typer.Context, item_id: int) -> None:
@@ -59,7 +63,7 @@ def register(app: typer.Typer) -> None:
             item = queries.get_item(conn, item_id)
         if item is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
-        emit(ctx, item_payload(item), lambda console: render_item(item, console))
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()
     def edit(
@@ -87,7 +91,7 @@ def register(app: typer.Typer) -> None:
             fail(str(exc))
         if item is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
-        emit(ctx, item_payload(item), lambda console: render_item(item, console))
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()
     def start(ctx: typer.Context, item_id: int) -> None:
@@ -96,7 +100,7 @@ def register(app: typer.Typer) -> None:
             item = queries.set_status(conn, item_id, "in_progress")
         if item is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
-        emit(ctx, item_payload(item), lambda console: render_item(item, console))
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()
     def done(ctx: typer.Context, item_id: int) -> None:
@@ -105,7 +109,7 @@ def register(app: typer.Typer) -> None:
             item = queries.set_status(conn, item_id, "completed")
         if item is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
-        emit(ctx, item_payload(item), lambda console: render_item(item, console))
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()
     def abandon(ctx: typer.Context, item_id: int) -> None:
@@ -114,7 +118,7 @@ def register(app: typer.Typer) -> None:
             item = queries.set_status(conn, item_id, "abandoned")
         if item is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
-        emit(ctx, item_payload(item), lambda console: render_item(item, console))
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()
     def delete(
@@ -131,4 +135,11 @@ def register(app: typer.Typer) -> None:
                 raise typer.Exit(1)
             deleted = queries.delete_item(conn, item_id)
         assert deleted is not None
-        emit(ctx, item_payload(deleted), lambda console: console.print(f"Deleted item #{deleted.id}: {deleted.title}"))
+        emit(ctx, deleted.to_dict(), lambda console: console.print(f"Deleted item #{deleted.id}: {deleted.title}"))
+
+    @app.command()
+    def search(ctx: typer.Context, query: str) -> None:
+        """Search items by title or description."""
+        with get_conn(ctx) as conn:
+            items = queries.search_items(conn, query)
+        emit(ctx, [item.to_dict() for item in items], lambda console: render_items(items, console))

@@ -80,8 +80,9 @@ def schema(ctx: typer.Context) -> None:
     )
 
 
-from .commands import export, items, review  # noqa: E402
+from .commands import export, items, review, tags  # noqa: E402
 
 items.register(app)
 review.register(app)
 export.register(app)
+tags.register(app)

@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from .models import HORIZONS, STATUSES, Item
+from .models import HORIZONS, STATUSES, Item, Tag
 
 
 def utc_now() -> str:
@@ -57,7 +57,18 @@ def create_item(
 
 
 def get_item(conn: sqlite3.Connection, item_id: int) -> Item | None:
-    return row_to_item(conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone())
+    row = conn.execute(
+        """
+        SELECT i.*, GROUP_CONCAT(t.name) as tags
+        FROM items i
+        LEFT JOIN item_tags it ON it.item_id = i.id
+        LEFT JOIN tags t ON t.id = it.tag_id
+        WHERE i.id = ?
+        GROUP BY i.id
+        """,
+        (item_id,),
+    ).fetchone()
+    return row_to_item(row)
 
 
 def list_items(
@@ -65,6 +76,7 @@ def list_items(
     *,
     horizon: str | None = None,
     status: str | None = None,
+    tag: str | None = None,
     all_items: bool = False,
     ranked: bool = False,
 ) -> list[Item]:
@@ -72,22 +84,35 @@ def list_items(
     params: list[object] = []
     if horizon:
         validate_horizon(horizon)
-        clauses.append("horizon = ?")
+        clauses.append("i.horizon = ?")
         params.append(horizon)
     elif not all_items:
-        clauses.append("horizon = ?")
+        clauses.append("i.horizon = ?")
         params.append("now")
     if status:
         validate_status(status)
-        clauses.append("status = ?")
+        clauses.append("i.status = ?")
         params.append(status)
-    sql = "SELECT * FROM items"
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
-    if ranked:
-        sql += " ORDER BY rank IS NULL, rank ASC, COALESCE(priority, 99), created_at DESC, id DESC"
-    else:
-        sql += " ORDER BY COALESCE(priority, 99), created_at DESC, id DESC"
+    if tag:
+        clauses.append(
+            "EXISTS (SELECT 1 FROM item_tags it2 JOIN tags t2 ON t2.id = it2.tag_id WHERE it2.item_id = i.id AND t2.name = ?)"
+        )
+        params.append(tag.strip().lower())
+    where = " AND ".join(clauses) if clauses else "1"
+    order = (
+        "rank IS NULL, rank ASC, COALESCE(priority, 99), created_at DESC, i.id DESC"
+        if ranked
+        else "COALESCE(priority, 99), created_at DESC, i.id DESC"
+    )
+    sql = f"""
+        SELECT i.*, GROUP_CONCAT(t.name) as tags
+        FROM items i
+        LEFT JOIN item_tags it ON it.item_id = i.id
+        LEFT JOIN tags t ON t.id = it.tag_id
+        WHERE {where}
+        GROUP BY i.id
+        ORDER BY {order}
+    """
     return [Item.from_row(row) for row in conn.execute(sql, params).fetchall()]
 
 
@@ -269,3 +294,78 @@ def target_rank_for_filtered_insert(conn: sqlite3.Connection, ranked_items: list
         assert ranked_items[-1].rank is not None
         return ranked_items[-1].rank + 1
     return max_rank(conn) + 1
+
+
+def _normalize_tag_name(tag_name: str) -> str:
+    name = tag_name.strip().lower()
+    if not name:
+        raise ValueError("tag name is required")
+    if "," in name:
+        raise ValueError("tag name cannot contain a comma")
+    return name
+
+
+def add_tag_to_item(conn: sqlite3.Connection, item_id: int, tag_name: str) -> Item | None:
+    name = _normalize_tag_name(tag_name)
+    item = get_item(conn, item_id)
+    if item is None:
+        return None
+    with conn:
+        conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (name,))
+        row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
+        assert row is not None
+        tag_id = row["id"]
+        conn.execute("INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?)", (item_id, tag_id))
+    return get_item(conn, item_id)
+
+
+def remove_tag_from_item(conn: sqlite3.Connection, item_id: int, tag_name: str) -> Item | None:
+    name = _normalize_tag_name(tag_name)
+    item = get_item(conn, item_id)
+    if item is None:
+        return None
+    with conn:
+        row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            return item
+        tag_id = row["id"]
+        conn.execute("DELETE FROM item_tags WHERE item_id = ? AND tag_id = ?", (item_id, tag_id))
+        count = conn.execute("SELECT COUNT(*) FROM item_tags WHERE tag_id = ?", (tag_id,)).fetchone()[0]
+        if count == 0:
+            conn.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+    return get_item(conn, item_id)
+
+
+def list_tags(conn: sqlite3.Connection) -> list[Tag]:
+    rows = conn.execute(
+        """
+        SELECT t.id, t.name, COUNT(it.item_id) as item_count
+        FROM tags t
+        LEFT JOIN item_tags it ON it.tag_id = t.id
+        GROUP BY t.id, t.name
+        ORDER BY t.name
+        """
+    ).fetchall()
+    return [Tag.from_row(row) for row in rows]
+
+
+def _escape_like_pattern(query: str) -> str:
+    return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search_items(conn: sqlite3.Connection, query: str) -> list[Item]:
+    escaped = _escape_like_pattern(query)
+    pattern = f"%{escaped}%"
+    rows = conn.execute(
+        """
+        SELECT i.*, GROUP_CONCAT(t.name) as tags
+        FROM items i
+        LEFT JOIN item_tags it ON it.item_id = i.id
+        LEFT JOIN tags t ON t.id = it.tag_id
+        WHERE i.title LIKE ? ESCAPE '\\' OR i.description LIKE ? ESCAPE '\\'
+        GROUP BY i.id
+        ORDER BY COALESCE(priority, 99), created_at DESC, i.id DESC
+        """,
+        (pattern, pattern),
+    ).fetchall()
+    return [Item.from_row(row) for row in rows]

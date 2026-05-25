@@ -181,3 +181,76 @@ def test_review_ranking_until_all_ranked_stops_before_reranking(tmp_path):
     assert all(item["rank"] is not None for item in items)
     assert sorted(item["rank"] for item in items) == [1, 2, 3]
     assert sum(item["rank_quiz_count"] for item in items) == 4
+
+
+def test_add_item_with_tags(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    result = invoke(db_path, "add", "Visit Japan", "--tag", "travel", "--tag", "asia")
+    assert result.exit_code == 0, result.output
+    created = json.loads(result.output)
+    assert created["tags"] == ["asia", "travel"]
+
+
+def test_tag_add_and_remove(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Test item").exit_code == 0
+
+    result = invoke(db_path, "tag", "add", "1", "fun")
+    assert result.exit_code == 0, result.output
+    item = json.loads(result.output)
+    assert item["tags"] == ["fun"]
+
+    result = invoke(db_path, "tag", "remove", "1", "fun")
+    assert result.exit_code == 0, result.output
+    item = json.loads(result.output)
+    assert item["tags"] == []
+
+
+def test_tags_list(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "A", "--tag", "adventure").exit_code == 0
+    assert invoke(db_path, "add", "B", "--tag", "adventure").exit_code == 0
+    assert invoke(db_path, "add", "C", "--tag", "travel").exit_code == 0
+
+    result = invoke(db_path, "tags")
+    assert result.exit_code == 0, result.output
+    tags = json.loads(result.output)
+    by_name = {t["name"]: t["item_count"] for t in tags}
+    assert by_name == {"adventure": 2, "travel": 1}
+
+
+def test_list_filtered_by_tag(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "A", "--tag", "fun").exit_code == 0
+    assert invoke(db_path, "add", "B").exit_code == 0
+
+    result = invoke(db_path, "list", "--all", "--tag", "fun")
+    assert result.exit_code == 0, result.output
+    items = json.loads(result.output)
+    assert [item["title"] for item in items] == ["A"]
+
+
+def test_search_command(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Visit Japan", "--desc", "Tokyo trip").exit_code == 0
+    assert invoke(db_path, "add", "Hike Alps", "--desc", "Swiss mountains").exit_code == 0
+
+    result = invoke(db_path, "search", "tokyo")
+    assert result.exit_code == 0, result.output
+    items = json.loads(result.output)
+    assert [item["title"] for item in items] == ["Visit Japan"]
+
+    result = invoke(db_path, "search", "swiss")
+    assert result.exit_code == 0, result.output
+    items = json.loads(result.output)
+    assert [item["title"] for item in items] == ["Hike Alps"]
+
+    result = invoke(db_path, "search", "xyz")
+    assert result.exit_code == 0, result.output
+    items = json.loads(result.output)
+    assert items == []
+
+
+def test_tag_add_not_found(tmp_path):
+    result = invoke(tmp_path / "bucket.sqlite", "tag", "add", "999", "fun")
+    assert result.exit_code == 2

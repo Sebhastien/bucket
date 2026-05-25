@@ -271,7 +271,8 @@ def test_block_and_unblock(tmp_path):
     assert result.exit_code == 0, result.output
     item = json.loads(result.output)
     assert item["blocked_by"] is None
-    assert item["horizon"] == "soon"
+    # unblock does not restore the original horizon; user edits manually
+    assert item["horizon"] == "blocked"
 
 
 def test_block_missing_item(tmp_path):
@@ -285,6 +286,7 @@ def test_block_missing_blocker(tmp_path):
 
     result = invoke(db_path, "block", "1", "--by", "999")
     assert result.exit_code == 2
+    assert "blocker" in result.output.lower()
 
 
 def test_block_circular_dependency(tmp_path):
@@ -298,6 +300,15 @@ def test_block_circular_dependency(tmp_path):
     result = invoke(db_path, "block", "1", "--by", "3")
     assert result.exit_code == 3
     assert "circular" in result.output.lower()
+
+
+def test_block_self(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "A").exit_code == 0
+
+    result = invoke(db_path, "block", "1", "--by", "1")
+    assert result.exit_code == 3
+    assert "itself" in result.output.lower()
 
 
 def test_done_blocked_requires_force(tmp_path):

@@ -267,12 +267,16 @@ def test_block_item_returns_none_for_missing_item():
     assert result is None
 
 
-def test_block_item_returns_none_for_missing_blocker():
+def test_block_item_raises_for_missing_blocker():
     conn = memory_conn()
     blocked = queries.create_item(conn, title="Travel to Japan")
 
-    result = queries.block_item(conn, blocked.id, 999)
-    assert result is None
+    try:
+        queries.block_item(conn, blocked.id, 999)
+    except ValueError as exc:
+        assert "blocker not found" in str(exc)
+    else:
+        raise AssertionError("missing blocker should fail")
 
 
 def test_circular_dependency_detected():
@@ -301,13 +305,26 @@ def test_unblock_item_clears_blocked_by():
 
     assert updated is not None
     assert updated.blocked_by is None
-    assert updated.horizon == "soon"
+    # horizon is left as-is; user must edit if they want to change it
+    assert updated.horizon == "blocked"
 
 
 def test_unblock_item_returns_none_for_missing_item():
     conn = memory_conn()
     result = queries.unblock_item(conn, 999)
     assert result is None
+
+
+def test_self_blocking_is_rejected():
+    conn = memory_conn()
+    item = queries.create_item(conn, title="A")
+
+    try:
+        queries.block_item(conn, item.id, item.id)
+    except ValueError as exc:
+        assert "cannot block itself" in str(exc)
+    else:
+        raise AssertionError("self-blocking should fail")
 
 
 def test_delete_blocking_item_nullifies_dependents():

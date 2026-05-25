@@ -19,7 +19,12 @@ def register(app: typer.Typer) -> None:
             with get_conn(ctx) as conn:
                 item = queries.block_item(conn, item_id, by)
         except ValueError as exc:
-            fail(str(exc), EXIT_CONFLICT)
+            msg = str(exc)
+            if "circular" in msg or "itself" in msg:
+                fail(msg, EXIT_CONFLICT)
+            if "blocker" in msg:
+                fail(msg, EXIT_NOT_FOUND)
+            fail(msg)
         if item is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
         emit(ctx, item.to_dict(), lambda console: render_item(item, console))

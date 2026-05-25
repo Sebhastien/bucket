@@ -302,12 +302,14 @@ def detect_circular_dependency(conn: sqlite3.Connection, item_id: int, blocked_b
 
 
 def block_item(conn: sqlite3.Connection, item_id: int, blocked_by_id: int) -> Item | None:
+    if item_id == blocked_by_id:
+        raise ValueError("an item cannot block itself")
     item = get_item(conn, item_id)
     if item is None:
         return None
     blocker = get_item(conn, blocked_by_id)
     if blocker is None:
-        return None
+        raise ValueError("blocker not found")
     if detect_circular_dependency(conn, item_id, blocked_by_id):
         raise ValueError("circular dependency detected")
     with conn:
@@ -324,7 +326,7 @@ def unblock_item(conn: sqlite3.Connection, item_id: int) -> Item | None:
         return None
     with conn:
         conn.execute(
-            "UPDATE items SET blocked_by = NULL, horizon = 'soon' WHERE id = ?",
+            "UPDATE items SET blocked_by = NULL WHERE id = ?",
             (item_id,),
         )
     return get_item(conn, item_id)

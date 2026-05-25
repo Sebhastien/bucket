@@ -353,6 +353,11 @@ def run_ranking_session(
     quiet: bool = False,
     until_all_ranked: bool = False,
 ):
+    if quiet:
+        raise RankingPromptRequiredError(
+            "review --ranking needs an interactive comparison; use rank-next/rank-answer with --json"
+        )
+
     ranked_results = []
     skipped_item_ids: set[int] = set()
     ranked_count = 0
@@ -365,8 +370,7 @@ def run_ranking_session(
             exclude_item_ids=skipped_item_ids,
         )
         if candidate is None:
-            if not quiet:
-                typer.echo("No eligible items to rank.")
+            typer.echo("No eligible items to rank.")
             break
         if is_rerank:
             queries.remove_item_from_ranking(conn, candidate.id)
@@ -379,14 +383,9 @@ def run_ranking_session(
             assert ranked is not None
             ranked_results.append(ranked)
             ranked_count += 1
-            if not quiet:
-                typer.echo(f"Ranked '{ranked.title}' at #{ranked.rank}.")
+            typer.echo(f"Ranked '{ranked.title}' at #{ranked.rank}.")
             continue
 
-        if quiet:
-            raise RankingPromptRequiredError(
-                "review --ranking needs an interactive comparison; use rank-next/rank-answer with --json"
-            )
         insertion_index = ask_for_insertion_index(conn, candidate, ranked_items, randomize=randomize)
         if insertion_index == "skip":
             skipped_item_ids.add(candidate.id)
@@ -398,8 +397,7 @@ def run_ranking_session(
         assert ranked is not None
         ranked_results.append(ranked)
         ranked_count += 1
-        if not quiet:
-            typer.echo(f"Ranked '{ranked.title}' at #{ranked.rank}.")
+        typer.echo(f"Ranked '{ranked.title}' at #{ranked.rank}.")
     return ranked_results
 
 

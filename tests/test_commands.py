@@ -121,7 +121,7 @@ def test_backup_restore_round_trip(tmp_path):
     assert invoke(source_db, "add", "Visit Japan", "--horizon", "soon", "--priority", "2").exit_code == 0
     assert invoke(source_db, "add", "Hike Grand Canyon", "--horizon", "now").exit_code == 0
     assert invoke(source_db, "start", "2").exit_code == 0
-    assert invoke(source_db, "review", "--ranking").exit_code == 0
+    assert runner.invoke(app, ["--db", str(source_db), "review", "--ranking", "--limit", "1"]).exit_code == 0
 
     result = invoke(source_db, "backup", "--dest", str(backup_file))
     assert result.exit_code == 0, result.output
@@ -174,7 +174,7 @@ def test_restore_rejects_future_schema_version(tmp_path):
 def test_review_ranking_inserts_unranked_item(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "First").exit_code == 0
-    assert invoke(db_path, "review", "--ranking").exit_code == 0
+    assert runner.invoke(app, ["--db", str(db_path), "review", "--ranking", "--limit", "1"]).exit_code == 0
     assert invoke(db_path, "add", "Second").exit_code == 0
 
     result = runner.invoke(app, ["--db", str(db_path), "review", "--ranking", "--no-randomize"], input="1\n")
@@ -186,17 +186,30 @@ def test_review_ranking_inserts_unranked_item(tmp_path):
     assert all(item["rank_quiz_count"] == 1 for item in items)
 
 
-def test_review_ranking_json_fails_cleanly_when_comparison_is_needed(tmp_path):
+def test_review_ranking_json_rejects_when_items_remain(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "First").exit_code == 0
-    assert invoke(db_path, "review", "--ranking").exit_code == 0
+    assert runner.invoke(app, ["--db", str(db_path), "review", "--ranking", "--limit", "1"]).exit_code == 0
     assert invoke(db_path, "add", "Second").exit_code == 0
 
     result = invoke(db_path, "review", "--ranking")
 
     assert result.exit_code == 3
-    assert "Which would you rather" not in result.output
+    assert "rank-next/rank-answer" in result.output
 
+
+def test_review_ranking_json_rejects_before_any_mutation(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+
+    result = invoke(db_path, "review", "--ranking")
+    assert result.exit_code == 3
+    assert "rank-next/rank-answer" in result.output
+
+    result = invoke(db_path, "list", "--all", "--ranked")
+    items = json.loads(result.output)
+    assert all(item["rank"] is None for item in items)
 
 
 def test_rank_next_and_rank_answer_json_flow(tmp_path):
@@ -441,7 +454,7 @@ def test_rank_answer_handles_missing_session_pivot_cleanly(tmp_path):
 def test_review_ranking_skip_does_not_increment_counts(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "First").exit_code == 0
-    assert invoke(db_path, "review", "--ranking").exit_code == 0
+    assert runner.invoke(app, ["--db", str(db_path), "review", "--ranking", "--limit", "1"]).exit_code == 0
     assert invoke(db_path, "add", "Second").exit_code == 0
 
     result = runner.invoke(app, ["--db", str(db_path), "review", "--ranking", "--no-randomize"], input="skip\n")

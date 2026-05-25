@@ -45,22 +45,20 @@ def _render_notes(notes: list[Note]) -> str:
 def render_item(item: Item, console: Console, notes: list[Note] | None = None) -> None:
     tags = ", ".join(item.tags) if item.tags else "[dim]none[/dim]"
     blocked = f"#{item.blocked_by}" if item.blocked_by else "[dim]-[/dim]"
-    notes_section = _render_notes(notes) if notes is not None else ""
-    body = "\n".join(
-        [
-            f"[bold]{item.title}[/bold]",
-            f"Status: {item.status}",
-            f"Horizon: {item.horizon}",
-            f"Priority: {item.priority or '-'}",
-            f"Target date: {item.target_date or '-'}",
-            f"Rank: {item.rank or '-'}",
-            f"Ranking quiz appearances: {item.rank_quiz_count}",
-            f"Blocked by: {blocked}",
-            f"Tags: {tags}",
-            "",
-            item.description or "[dim]No description[/dim]",
-            "",
-            notes_section,
-        ]
-    )
+    parts = [
+        f"[bold]{item.title}[/bold]",
+        f"Status: {item.status}",
+        f"Horizon: {item.horizon}",
+        f"Priority: {item.priority or '-'}",
+        f"Target date: {item.target_date or '-'}",
+        f"Rank: {item.rank or '-'}",
+        f"Ranking quiz appearances: {item.rank_quiz_count}",
+        f"Blocked by: {blocked}",
+        f"Tags: {tags}",
+        "",
+        item.description or "[dim]No description[/dim]",
+    ]
+    if notes is not None:
+        parts.extend(["", _render_notes(notes)])
+    body = "\n".join(parts)
     console.print(Panel(body, title=f"Item #{item.id}"))

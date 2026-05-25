@@ -255,21 +255,33 @@ def test_note_add_and_show(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "Visit Japan").exit_code == 0
 
-    result = invoke(db_path, "note", "1", "Check", "visa", "requirements")
+    result = invoke(db_path, "note", "add", "1", "Check", "visa", "requirements")
     assert result.exit_code == 0, result.output
     note = json.loads(result.output)
     assert note["item_id"] == 1
     assert note["body"] == "Check visa requirements"
 
-    result = invoke(db_path, "note", "1", "Book", "flights")
+    result = invoke(db_path, "note", "add", "1", "Book", "flights")
     assert result.exit_code == 0
 
     result = invoke(db_path, "show", "1")
     assert result.exit_code == 0, result.output
 
 
+def test_note_show_includes_notes_in_json(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Visit Japan").exit_code == 0
+    assert invoke(db_path, "note", "add", "1", "Check visa").exit_code == 0
+
+    result = invoke(db_path, "show", "1")
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload["notes"]) == 1
+    assert payload["notes"][0]["body"] == "Check visa"
+
+
 def test_note_requires_item(tmp_path):
-    result = invoke(tmp_path / "bucket.sqlite", "note", "999", "Some text")
+    result = invoke(tmp_path / "bucket.sqlite", "note", "add", "999", "Some text")
     assert result.exit_code == 2
 
 
@@ -277,8 +289,30 @@ def test_note_empty_body(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "Test").exit_code == 0
 
-    result = invoke(db_path, "note", "1", "")
+    result = invoke(db_path, "note", "add", "1", "")
     assert result.exit_code == 1
+
+
+def test_note_delete(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Test").exit_code == 0
+    result = invoke(db_path, "note", "add", "1", "Delete me")
+    assert result.exit_code == 0, result.output
+    note = json.loads(result.output)
+
+    result = invoke(db_path, "note", "delete", str(note["id"]))
+    assert result.exit_code == 0, result.output
+    deleted = json.loads(result.output)
+    assert deleted["body"] == "Delete me"
+
+    result = invoke(db_path, "show", "1")
+    payload = json.loads(result.output)
+    assert payload["notes"] == []
+
+
+def test_note_delete_not_found(tmp_path):
+    result = invoke(tmp_path / "bucket.sqlite", "note", "delete", "999")
+    assert result.exit_code == 2
 
 
 def test_note_backup_restore_round_trip(tmp_path):
@@ -287,7 +321,7 @@ def test_note_backup_restore_round_trip(tmp_path):
     backup_file = tmp_path / "backup.json"
 
     assert invoke(source_db, "add", "Visit Japan").exit_code == 0
-    assert invoke(source_db, "note", "1", "Check visa").exit_code == 0
+    assert invoke(source_db, "note", "add", "1", "Check visa").exit_code == 0
     assert invoke(source_db, "backup", "--dest", str(backup_file)).exit_code == 0
 
     result = invoke(restored_db, "restore", str(backup_file))

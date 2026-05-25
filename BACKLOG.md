@@ -15,9 +15,6 @@ When `from_row` is called on a row that includes the `GROUP_CONCAT(...)` column 
 
 ## Pending Features
 
-### Notes (`bucket note <id> "..."`)
-The `notes` table isn't in the schema yet. Add a migration and `commands/notes.py` for attaching free-text notes to items.
-
 ### Stats (`bucket stats`)
 Completion rate, breakdown by horizon/status/tag. High agent value with `--json`.
 

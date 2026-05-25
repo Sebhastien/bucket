@@ -64,7 +64,9 @@ def register(app: typer.Typer) -> None:
             if item is None:
                 fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
             notes = queries.get_notes_for_item(conn, item_id)
-        emit(ctx, item.to_dict(), lambda console: render_item(item, console, notes))
+        payload = item.to_dict()
+        payload["notes"] = [n.to_dict() for n in notes]
+        emit(ctx, payload, lambda console: render_item(item, console, notes))
 
     @app.command()
     def edit(

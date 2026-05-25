@@ -422,6 +422,20 @@ def get_notes_for_item(conn: sqlite3.Connection, item_id: int) -> list[Note]:
     return [Note.from_row(row) for row in rows]
 
 
+def get_note_by_id(conn: sqlite3.Connection, note_id: int) -> Note | None:
+    row = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
+    return Note.from_row(row) if row else None
+
+
+def delete_note(conn: sqlite3.Connection, note_id: int) -> Note | None:
+    note = get_note_by_id(conn, note_id)
+    if note is None:
+        return None
+    with conn:
+        conn.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+    return note
+
+
 def search_items(conn: sqlite3.Connection, query: str) -> list[Item]:
     escaped = _escape_like_pattern(query)
     pattern = f"%{escaped}%"

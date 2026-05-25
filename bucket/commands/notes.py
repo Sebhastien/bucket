@@ -7,8 +7,10 @@ from bucket.main import EXIT_NOT_FOUND, emit, fail, get_conn
 
 
 def register(app: typer.Typer) -> None:
-    @app.command()
-    def note(
+    note_app = typer.Typer()
+
+    @note_app.command("add")
+    def note_add(
         ctx: typer.Context,
         item_id: int,
         body: list[str] = typer.Argument(..., help="Note text."),
@@ -23,3 +25,17 @@ def register(app: typer.Typer) -> None:
         if note is None:
             fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
         emit(ctx, note.to_dict(), lambda console: console.print(f"Note added to item #{item_id}."))
+
+    @note_app.command("delete")
+    def note_delete(
+        ctx: typer.Context,
+        note_id: int,
+    ) -> None:
+        """Delete a note by its ID."""
+        with get_conn(ctx) as conn:
+            deleted = queries.delete_note(conn, note_id)
+        if deleted is None:
+            fail(f"note not found: {note_id}", EXIT_NOT_FOUND)
+        emit(ctx, deleted.to_dict(), lambda console: console.print(f"Deleted note #{deleted.id}."))
+
+    app.add_typer(note_app, name="note")

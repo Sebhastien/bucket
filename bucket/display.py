@@ -15,9 +15,11 @@ def render_items(items: list[Item], console: Console) -> None:
     table.add_column("Status")
     table.add_column("Priority")
     table.add_column("Rank")
+    table.add_column("Blocked by")
     table.add_column("Tags")
     for item in items:
         tags = ", ".join(item.tags) if item.tags else ""
+        blocked_by = f"#{item.blocked_by}" if item.blocked_by else ""
         table.add_row(
             str(item.id),
             item.title,
@@ -25,6 +27,7 @@ def render_items(items: list[Item], console: Console) -> None:
             item.status,
             str(item.priority or ""),
             str(item.rank or ""),
+            blocked_by,
             tags,
         )
     console.print(table)
@@ -32,6 +35,7 @@ def render_items(items: list[Item], console: Console) -> None:
 
 def render_item(item: Item, console: Console) -> None:
     tags = ", ".join(item.tags) if item.tags else "[dim]none[/dim]"
+    blocked = f"#{item.blocked_by}" if item.blocked_by else "[dim]-[/dim]"
     body = "\n".join(
         [
             f"[bold]{item.title}[/bold]",
@@ -41,6 +45,7 @@ def render_item(item: Item, console: Console) -> None:
             f"Target date: {item.target_date or '-'}",
             f"Rank: {item.rank or '-'}",
             f"Ranking quiz appearances: {item.rank_quiz_count}",
+            f"Blocked by: {blocked}",
             f"Tags: {tags}",
             "",
             item.description or "[dim]No description[/dim]",

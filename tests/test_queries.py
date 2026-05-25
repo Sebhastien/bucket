@@ -247,6 +247,82 @@ def test_search_escapes_like_wildcards():
     assert [item.title for item in queries.search_items(conn, "test")] == ["test_item"]
 
 
+def test_block_item_sets_blocked_by_and_horizon():
+    conn = memory_conn()
+    blocker = queries.create_item(conn, title="Get passport")
+    blocked = queries.create_item(conn, title="Travel to Japan")
+
+    updated = queries.block_item(conn, blocked.id, blocker.id)
+
+    assert updated is not None
+    assert updated.blocked_by == blocker.id
+    assert updated.horizon == "blocked"
+
+
+def test_block_item_returns_none_for_missing_item():
+    conn = memory_conn()
+    blocker = queries.create_item(conn, title="Get passport")
+
+    result = queries.block_item(conn, 999, blocker.id)
+    assert result is None
+
+
+def test_block_item_returns_none_for_missing_blocker():
+    conn = memory_conn()
+    blocked = queries.create_item(conn, title="Travel to Japan")
+
+    result = queries.block_item(conn, blocked.id, 999)
+    assert result is None
+
+
+def test_circular_dependency_detected():
+    conn = memory_conn()
+    a = queries.create_item(conn, title="A")
+    b = queries.create_item(conn, title="B")
+    c = queries.create_item(conn, title="C")
+    queries.block_item(conn, b.id, a.id)
+    queries.block_item(conn, c.id, b.id)
+
+    try:
+        queries.block_item(conn, a.id, c.id)
+    except ValueError as exc:
+        assert "circular" in str(exc)
+    else:
+        raise AssertionError("circular dependency should fail")
+
+
+def test_unblock_item_clears_blocked_by():
+    conn = memory_conn()
+    blocker = queries.create_item(conn, title="Get passport")
+    blocked = queries.create_item(conn, title="Travel to Japan")
+    queries.block_item(conn, blocked.id, blocker.id)
+
+    updated = queries.unblock_item(conn, blocked.id)
+
+    assert updated is not None
+    assert updated.blocked_by is None
+    assert updated.horizon == "soon"
+
+
+def test_unblock_item_returns_none_for_missing_item():
+    conn = memory_conn()
+    result = queries.unblock_item(conn, 999)
+    assert result is None
+
+
+def test_delete_blocking_item_nullifies_dependents():
+    conn = memory_conn()
+    blocker = queries.create_item(conn, title="Get passport")
+    blocked = queries.create_item(conn, title="Travel to Japan")
+    queries.block_item(conn, blocked.id, blocker.id)
+
+    queries.delete_item(conn, blocker.id)
+    item = queries.get_item(conn, blocked.id)
+
+    assert item is not None
+    assert item.blocked_by is None
+
+
 def test_add_tag_rejects_comma():
     conn = memory_conn()
     item = queries.create_item(conn, title="Test")

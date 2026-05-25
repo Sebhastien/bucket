@@ -4,7 +4,7 @@ import typer
 
 from bucket import queries
 from bucket.display import render_item, render_items
-from bucket.main import EXIT_NOT_FOUND, emit, fail, get_conn
+from bucket.main import EXIT_NOT_FOUND, EXIT_USER_ERROR, emit, fail, get_conn
 
 
 def register(app: typer.Typer) -> None:
@@ -103,12 +103,19 @@ def register(app: typer.Typer) -> None:
         emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()
-    def done(ctx: typer.Context, item_id: int) -> None:
+    def done(
+        ctx: typer.Context,
+        item_id: int,
+        force: bool = typer.Option(False, "--force", help="Override if item is blocked."),
+    ) -> None:
         """Mark an item completed."""
         with get_conn(ctx) as conn:
+            item = queries.get_item(conn, item_id)
+            if item is None:
+                fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
+            if item.blocked_by is not None and not force:
+                fail(f"item is blocked by #{item.blocked_by}; use --force to override", EXIT_USER_ERROR)
             item = queries.set_status(conn, item_id, "completed")
-        if item is None:
-            fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
         emit(ctx, item.to_dict(), lambda console: render_item(item, console))
 
     @app.command()

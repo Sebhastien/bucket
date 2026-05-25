@@ -286,6 +286,50 @@ def insert_item_at_rank(conn: sqlite3.Connection, item_id: int, target_rank: int
     return get_item(conn, item_id)
 
 
+def detect_circular_dependency(conn: sqlite3.Connection, item_id: int, blocked_by_id: int) -> bool:
+    """Return True if setting item.blocked_by = blocked_by_id would create a cycle."""
+    visited: set[int] = set()
+    current: int | None = blocked_by_id
+    while current is not None:
+        if current == item_id:
+            return True
+        if current in visited:
+            return True
+        visited.add(current)
+        row = conn.execute("SELECT blocked_by FROM items WHERE id = ?", (current,)).fetchone()
+        current = row["blocked_by"] if row else None
+    return False
+
+
+def block_item(conn: sqlite3.Connection, item_id: int, blocked_by_id: int) -> Item | None:
+    item = get_item(conn, item_id)
+    if item is None:
+        return None
+    blocker = get_item(conn, blocked_by_id)
+    if blocker is None:
+        return None
+    if detect_circular_dependency(conn, item_id, blocked_by_id):
+        raise ValueError("circular dependency detected")
+    with conn:
+        conn.execute(
+            "UPDATE items SET blocked_by = ?, horizon = 'blocked' WHERE id = ?",
+            (blocked_by_id, item_id),
+        )
+    return get_item(conn, item_id)
+
+
+def unblock_item(conn: sqlite3.Connection, item_id: int) -> Item | None:
+    item = get_item(conn, item_id)
+    if item is None:
+        return None
+    with conn:
+        conn.execute(
+            "UPDATE items SET blocked_by = NULL, horizon = 'soon' WHERE id = ?",
+            (item_id,),
+        )
+    return get_item(conn, item_id)
+
+
 def target_rank_for_filtered_insert(conn: sqlite3.Connection, ranked_items: list[Item], insertion_index: int) -> int:
     if ranked_items and insertion_index < len(ranked_items):
         assert ranked_items[insertion_index].rank is not None

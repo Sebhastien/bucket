@@ -254,3 +254,63 @@ def test_search_command(tmp_path):
 def test_tag_add_not_found(tmp_path):
     result = invoke(tmp_path / "bucket.sqlite", "tag", "add", "999", "fun")
     assert result.exit_code == 2
+
+
+def test_block_and_unblock(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Get passport").exit_code == 0
+    assert invoke(db_path, "add", "Travel to Japan").exit_code == 0
+
+    result = invoke(db_path, "block", "2", "--by", "1")
+    assert result.exit_code == 0, result.output
+    item = json.loads(result.output)
+    assert item["blocked_by"] == 1
+    assert item["horizon"] == "blocked"
+
+    result = invoke(db_path, "unblock", "2")
+    assert result.exit_code == 0, result.output
+    item = json.loads(result.output)
+    assert item["blocked_by"] is None
+    assert item["horizon"] == "soon"
+
+
+def test_block_missing_item(tmp_path):
+    result = invoke(tmp_path / "bucket.sqlite", "block", "999", "--by", "1")
+    assert result.exit_code == 2
+
+
+def test_block_missing_blocker(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Travel to Japan").exit_code == 0
+
+    result = invoke(db_path, "block", "1", "--by", "999")
+    assert result.exit_code == 2
+
+
+def test_block_circular_dependency(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "A").exit_code == 0
+    assert invoke(db_path, "add", "B").exit_code == 0
+    assert invoke(db_path, "add", "C").exit_code == 0
+    assert invoke(db_path, "block", "2", "--by", "1").exit_code == 0
+    assert invoke(db_path, "block", "3", "--by", "2").exit_code == 0
+
+    result = invoke(db_path, "block", "1", "--by", "3")
+    assert result.exit_code == 3
+    assert "circular" in result.output.lower()
+
+
+def test_done_blocked_requires_force(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Get passport").exit_code == 0
+    assert invoke(db_path, "add", "Travel to Japan").exit_code == 0
+    assert invoke(db_path, "block", "2", "--by", "1").exit_code == 0
+
+    result = invoke(db_path, "done", "2")
+    assert result.exit_code == 1
+    assert "blocked" in result.output.lower()
+
+    result = invoke(db_path, "done", "2", "--force")
+    assert result.exit_code == 0, result.output
+    item = json.loads(result.output)
+    assert item["status"] == "completed"

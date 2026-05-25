@@ -13,7 +13,7 @@ The project is intentionally lightweight: Python, Typer, Rich, and the standard-
 - Dependency blocking: mark items as blocked by other items
 - Tagging for flexible categorization
 - Notes on individual items
-- Search by title or description
+- Fuzzy search by title or description
 - Rich human-readable terminal output
 - `--json` output for scripting and agent workflows
 - Stable database override via `--db`

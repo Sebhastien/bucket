@@ -170,6 +170,22 @@ Rank only a filtered section:
 uv run bucket review --ranking --until-all-ranked --horizon now
 ```
 
+### How ranking works
+
+Ranking is designed to require a small number of meaningful choices, not a long sorting chore.
+
+When you rank a new item, the CLI uses binary search to place it into your existing ranked list. Rather than comparing the new item against every ranked item, you answer roughly `log2(n)` questions. With 16 ranked items, that is about 4 comparisons instead of 16.
+
+By default, the CLI adds a little randomness, or “jitter,” to the comparison choice. Instead of always selecting the exact midpoint, it picks a random item near the midpoint — within about one sixth of the current search range.
+
+That small randomness helps because:
+
+1. **Ranking feels less repetitive.** Without jitter, the same midpoint item tends to appear first every time. With 8 ranked items, for example, strict binary search would repeatedly start around item #4.
+2. **More items resurface over time.** Each item tracks `rank_quiz_count`, which records how often it has appeared in ranking prompts. Strict midpoint search overexposes the center of the list and underexposes the edges; jitter spreads those appearances more evenly.
+3. **The search still stays efficient.** The jitter is bounded, so it usually adds at most one extra question. In exchange, the review feels more reflective and less mechanical.
+
+The goal is to turn ranking into 4–5 useful judgment calls instead of a predictable sequence of identical-feeling midpoint comparisons.
+
 Use strict midpoint binary search instead of randomized pivots:
 
 ```bash

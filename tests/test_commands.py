@@ -2,7 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
-from bucket import db
+from bucket import db, queries
 from bucket.main import app
 
 runner = CliRunner()
@@ -451,6 +451,51 @@ def test_rank_answer_handles_missing_session_pivot_cleanly(tmp_path):
 
     assert result.exit_code == 3
     assert "pivot mismatch" in result.output
+
+
+
+def test_rank_answer_deletes_stale_session_when_ranks_shift_but_items_still_eligible(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0  # auto-ranks First
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
+    assert step["status"] == "comparison"
+    assert step["candidate"]["title"] == "Second"
+    assert step["pivot"]["title"] == "First"
+
+    # Manually insert a third ranked item, shifting First's position in the ranked list
+    assert invoke(db_path, "add", "Third").exit_code == 0
+    conn = db.connect(db_path)
+    try:
+        queries.insert_item_at_rank(conn, 3, 1)
+    finally:
+        conn.close()
+
+    # rank-answer should detect the stale pivot_index and reject
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate", str(step["candidate"]["id"]),
+        "--pivot", str(step["pivot"]["id"]),
+        "--winner", "candidate",
+    )
+    assert result.exit_code == 3
+    assert "ranking changed since rank-next" in result.output.lower()
+
+    # Stale session must be deleted from the database
+    conn = db.connect(db_path)
+    try:
+        row = conn.execute("SELECT * FROM ranking_sessions WHERE candidate_id = ?", (step["candidate"]["id"],)).fetchone()
+        assert row is None
+    finally:
+        conn.close()
+
+    # rank-next should now compute a fresh comparison, not loop on the stale one
+    result = invoke(db_path, "rank-next", "--no-randomize")
+    assert result.exit_code == 0, result.output
+    step2 = json.loads(result.output)
+    assert step2["status"] in ("comparison", "empty")
 
 
 

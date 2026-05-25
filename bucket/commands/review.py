@@ -234,7 +234,14 @@ def next_ranking_step(
         candidate = queries.get_item(conn, int(session["candidate_id"]))
         pivot = queries.get_item(conn, int(session["pivot_id"])) if session["pivot_id"] is not None else None
         if candidate is not None and pivot is not None:
-            if _item_matches_session_filters(candidate, session) and _item_matches_session_filters(pivot, session):
+            ranked_items = queries.get_ranked_items(conn, horizon=session["horizon"], include_all=bool(session["include_all"]))
+            pivot_index = int(session["pivot_index"])
+            if (
+                _item_matches_session_filters(candidate, session)
+                and _item_matches_session_filters(pivot, session)
+                and pivot_index < len(ranked_items)
+                and ranked_items[pivot_index].id == pivot.id
+            ):
                 return _comparison_payload(candidate, pivot)
             queries.delete_ranking_session(conn, candidate.id)
         elif candidate is not None:
@@ -309,6 +316,7 @@ def apply_ranking_answer(conn: sqlite3.Connection, *, candidate_id: int, pivot_i
     ranked_items = queries.get_ranked_items(conn, horizon=horizon, include_all=include_all)
     pivot_index = int(session["pivot_index"])
     if pivot_index >= len(ranked_items) or ranked_items[pivot_index].id != pivot_id:
+        queries.delete_ranking_session(conn, candidate_id)
         raise ValueError("ranking changed since rank-next; run rank-next again")
 
     low, high = next_bounds(

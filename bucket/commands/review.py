@@ -98,7 +98,7 @@ def register(app: typer.Typer) -> None:
         pivot: int = typer.Option(..., "--pivot", help="Pivot item ID from rank-next."),
         winner: str = typer.Option(..., "--winner", help="candidate, pivot, or skip."),
     ) -> None:
-        """Apply one agent-drivable ranking answer and return the next step."""
+        """Apply one agent-drivable ranking answer and return the ranking result."""
         try:
             conn = get_conn(ctx)
             try:

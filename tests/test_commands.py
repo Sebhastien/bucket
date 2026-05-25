@@ -48,6 +48,11 @@ def test_not_found_exit_code(tmp_path):
     assert result.exit_code == 2
 
 
+def test_edit_not_found_exit_code(tmp_path):
+    result = invoke(tmp_path / "bucket.sqlite", "edit", "999", "--title", "Missing")
+    assert result.exit_code == 2
+
+
 def test_schema_json(tmp_path):
     result = invoke(tmp_path / "bucket.sqlite", "schema")
     assert result.exit_code == 0, result.output

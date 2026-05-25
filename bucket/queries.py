@@ -212,14 +212,23 @@ def increment_rank_quiz_counts(conn: sqlite3.Connection, item_ids: list[int]) ->
 
 
 def remove_item_from_ranking(conn: sqlite3.Connection, item_id: int) -> Item | None:
-    item = get_item(conn, item_id)
-    if item is None:
-        return None
-    if item.rank is None:
-        return item
-    with conn:
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        item = Item.from_row(row)
+        if item.rank is None:
+            conn.commit()
+            return item
         conn.execute("UPDATE items SET rank = NULL, ranked_at = NULL WHERE id = ?", (item_id,))
         conn.execute("UPDATE items SET rank = rank - 1 WHERE rank > ?", (item.rank,))
+        conn.commit()
+    except sqlite3.Error:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
     return get_item(conn, item_id)
 
 
@@ -229,18 +238,28 @@ def max_rank(conn: sqlite3.Connection) -> int:
 
 
 def insert_item_at_rank(conn: sqlite3.Connection, item_id: int, target_rank: int) -> Item | None:
-    item = get_item(conn, item_id)
-    if item is None:
-        return None
-    if item.rank is not None:
-        remove_item_from_ranking(conn, item_id)
-    target_rank = max(1, min(target_rank, max_rank(conn) + 1))
-    with conn:
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        item = Item.from_row(row)
+        if item.rank is not None:
+            conn.execute("UPDATE items SET rank = NULL, ranked_at = NULL WHERE id = ?", (item_id,))
+            conn.execute("UPDATE items SET rank = rank - 1 WHERE rank > ?", (item.rank,))
+        row = conn.execute("SELECT COALESCE(MAX(rank), 0) AS max_rank FROM items").fetchone()
+        target_rank = max(1, min(target_rank, int(row["max_rank"]) + 1))
         conn.execute("UPDATE items SET rank = rank + 1 WHERE rank >= ?", (target_rank,))
         conn.execute(
             "UPDATE items SET rank = ?, ranked_at = ? WHERE id = ?",
             (target_rank, utc_now(), item_id),
         )
+        conn.commit()
+    except sqlite3.Error:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
     return get_item(conn, item_id)
 
 

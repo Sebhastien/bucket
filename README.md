@@ -196,12 +196,24 @@ uv run bucket list --all --ranked
 
 ## JSON Output
 
-Most commands support JSON for scripting:
+Most commands support JSON for scripting. Because `--json` is a global Typer option, place it before the subcommand:
 
 ```bash
 uv run bucket --json add "Visit Japan" --horizon soon
 uv run bucket --json list --all --ranked
 uv run bucket --json show 1
+```
+
+This works:
+
+```bash
+uv run bucket --json list --all
+```
+
+This does not:
+
+```bash
+uv run bucket list --all --json
 ```
 
 The schema can be inspected with:

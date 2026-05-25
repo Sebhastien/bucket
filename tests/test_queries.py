@@ -28,6 +28,30 @@ def test_create_get_update_delete_item():
     assert queries.get_item(conn, item.id) is None
 
 
+def test_create_item_validates_input():
+    conn = memory_conn()
+    try:
+        queries.create_item(conn, title="", horizon="now")
+    except ValueError as exc:
+        assert str(exc) == "title is required"
+    else:
+        raise AssertionError("empty title should fail")
+
+    try:
+        queries.create_item(conn, title="Bad horizon", horizon="later")
+    except ValueError as exc:
+        assert "horizon must be one of" in str(exc)
+    else:
+        raise AssertionError("bad horizon should fail")
+
+    try:
+        queries.create_item(conn, title="Bad priority", priority=9)
+    except ValueError as exc:
+        assert str(exc) == "priority must be between 1 and 5"
+    else:
+        raise AssertionError("bad priority should fail")
+
+
 def test_list_defaults_to_now():
     conn = memory_conn()
     queries.create_item(conn, title="Now", horizon="now")
@@ -107,4 +131,18 @@ def test_remove_item_from_ranking_closes_gap():
     assert [(item.title, item.rank) for item in queries.list_items(conn, all_items=True, ranked=True)] == [
         ("Second", 1),
         ("First", None),
+    ]
+
+
+def test_insert_item_at_rank_clamps_out_of_range_targets():
+    conn = memory_conn()
+    first = queries.create_item(conn, title="First", horizon="now")
+    second = queries.create_item(conn, title="Second", horizon="now")
+
+    queries.insert_item_at_rank(conn, first.id, 0)
+    queries.insert_item_at_rank(conn, second.id, 99)
+
+    assert [(item.title, item.rank) for item in queries.list_items(conn, all_items=True, ranked=True)] == [
+        ("First", 1),
+        ("Second", 2),
     ]

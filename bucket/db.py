@@ -50,7 +50,22 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         version = int(migration.name.split("_", 1)[0])
         if version <= current_version:
             continue
-        with conn:
-            conn.executescript(migration.read_text())
-            conn.execute("UPDATE schema_version SET version = ?", (version,))
-            current_version = version
+        apply_migration(conn, migration, version)
+        current_version = version
+
+
+def apply_migration(conn: sqlite3.Connection, migration: Path, version: int) -> None:
+    """Apply one migration and its version bump in a single SQLite transaction."""
+    script = migration.read_text()
+    transactional_script = f"""
+BEGIN;
+{script}
+UPDATE schema_version SET version = {version};
+COMMIT;
+"""
+    try:
+        conn.executescript(transactional_script)
+    except sqlite3.Error:
+        if conn.in_transaction:
+            conn.rollback()
+        raise

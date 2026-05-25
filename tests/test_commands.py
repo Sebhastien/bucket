@@ -482,4 +482,12 @@ def test_completion_show_fish():
 def test_completion_install_unknown_shell():
     result = runner.invoke(app, ["completion", "install", "--shell", "unknown"])
     assert result.exit_code == 1
+    assert "unknown" in result.output.lower()
+    assert "not supported" in result.output.lower()
+
+
+def test_completion_show_unknown_shell():
+    result = runner.invoke(app, ["completion", "show", "--shell", "unknown"])
+    assert result.exit_code == 1
+    assert "unknown" in result.output.lower()
     assert "not supported" in result.output.lower()

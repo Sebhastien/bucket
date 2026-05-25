@@ -354,11 +354,14 @@ def test_rank_answer_rejects_stale_candidate_completed(tmp_path):
 def test_rank_answer_rejects_stale_candidate_blocked(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "Blocker").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0  # auto-ranks Blocker deterministically
     assert invoke(db_path, "add", "First").exit_code == 0
-    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0  # creates session with First as candidate
     assert invoke(db_path, "add", "Second").exit_code == 0
     step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
 
+    # Blocker was auto-ranked first, so its id is 1 and it is not the candidate
+    assert step["candidate"]["id"] != 1
     assert invoke(db_path, "block", str(step["candidate"]["id"]), "--by", "1").exit_code == 0
 
     result = invoke(

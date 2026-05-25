@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import typer
 
 from bucket import queries
@@ -23,20 +25,89 @@ def register(app: typer.Typer) -> None:
         randomize: bool = typer.Option(True, "--randomize/--no-randomize", help="Randomize pivots near the midpoint."),
     ) -> None:
         """Review bucket list items."""
-        if not ranking:
-            typer.echo("Use --ranking to enter pairwise ranking mode.")
+        if ranking:
+            with get_conn(ctx) as conn:
+                results = run_ranking_session(
+                    conn,
+                    horizon=horizon,
+                    include_all=all_items,
+                    limit=limit,
+                    randomize=randomize,
+                    quiet=ctx.obj["json"],
+                    until_all_ranked=until_all_ranked,
+                )
+            emit(ctx, [item.to_dict() for item in results], lambda console: console.print(f"Ranked {len(results)} item(s)."))
             return
-        with get_conn(ctx) as conn:
-            results = run_ranking_session(
-                conn,
-                horizon=horizon,
-                include_all=all_items,
-                limit=limit,
-                randomize=randomize,
-                quiet=ctx.obj["json"],
-                until_all_ranked=until_all_ranked,
-            )
-        emit(ctx, [item.to_dict() for item in results], lambda console: console.print(f"Ranked {len(results)} item(s)."))
+
+        if ctx.obj["json"]:
+            typer.echo("GTD review is interactive and does not support --json.", err=True)
+            raise typer.Exit(1)
+
+        # GTD review is interactive; each mutation is self-committing so
+        # partial progress is preserved if the user quits mid-session.
+        conn = get_conn(ctx)
+        try:
+            run_gtd_review(conn, horizon=horizon, include_all=all_items)
+        finally:
+            conn.close()
+
+
+def run_gtd_review(
+    conn: sqlite3.Connection,
+    *,
+    horizon: str | None,
+    include_all: bool,
+) -> None:
+    """Interactive GTD-style review of items."""
+    items = queries.get_review_items(conn, horizon=horizon, include_all=include_all)
+    if not items:
+        typer.echo("No items to review.")
+        return
+
+    typer.echo(f"\nReviewing {len(items)} item(s).\n")
+
+    reviewed = 0
+    for item in items:
+        typer.echo(f"─" * 50)
+        typer.echo(f"  {item.title}")
+        typer.echo(f"  Horizon: {item.horizon} | Status: {item.status}")
+        if item.description:
+            typer.echo(f"  {item.description}")
+        if item.tags:
+            typer.echo(f"  Tags: {', '.join(item.tags)}")
+
+        typer.echo()
+        answer = typer.prompt(
+            "[y] keep  [n] now  [s] soon  [d] done  [a] abandon  [skip]  [quit]"
+        ).strip().lower()
+
+        if answer in {"q", "quit"}:
+            break
+        if answer in {"skip", ""}:
+            continue
+        if answer in {"n", "now"}:
+            queries.update_item(conn, item.id, horizon="now")
+            conn.commit()
+            reviewed += 1
+        elif answer in {"s", "soon"}:
+            queries.update_item(conn, item.id, horizon="soon")
+            conn.commit()
+            reviewed += 1
+        elif answer in {"d", "done"}:
+            queries.set_status(conn, item.id, "completed")
+            conn.commit()
+            reviewed += 1
+        elif answer in {"a", "abandon"}:
+            queries.set_status(conn, item.id, "abandoned")
+            conn.commit()
+            reviewed += 1
+        elif answer in {"y", "yes", "keep"}:
+            # explicitly keep — no-op, counts as reviewed
+            reviewed += 1
+        else:
+            typer.echo("  Unrecognized choice, skipping.")
+
+    typer.echo(f"\nReviewed {reviewed} item(s).")
 
 
 def run_ranking_session(

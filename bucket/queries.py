@@ -120,6 +120,49 @@ def list_items(
     return [Item.from_row(row) for row in conn.execute(sql, params).fetchall()]
 
 
+def get_review_items(
+    conn: sqlite3.Connection,
+    *,
+    horizon: str | None = None,
+    include_all: bool = False,
+) -> list[Item]:
+    """Return items eligible for GTD review.
+
+    Defaults to active/in_progress items with horizon someday or soon.
+    If horizon is provided, filter to that horizon only.
+    """
+    if horizon:
+        validate_horizon(horizon)
+        horizons = [horizon]
+    else:
+        horizons = ["someday", "soon"]
+
+    placeholders = ", ".join("?" for _ in horizons)
+    clauses: list[str] = [f"i.horizon IN ({placeholders})"]
+    params: list[object] = list(horizons)
+
+    if not include_all:
+        clauses.append("i.status IN ('active', 'in_progress')")
+
+    where = " AND ".join(clauses)
+    sql = f"""
+        SELECT i.*, GROUP_CONCAT(t.name) as tags
+        FROM items i
+        LEFT JOIN item_tags it ON it.item_id = i.id
+        LEFT JOIN tags t ON t.id = it.tag_id
+        WHERE {where}
+        GROUP BY i.id
+        ORDER BY CASE i.horizon
+                     WHEN 'now' THEN 0
+                     WHEN 'soon' THEN 1
+                     WHEN 'someday' THEN 2
+                     ELSE 3
+                   END,
+                 COALESCE(i.priority, 99), i.created_at DESC, i.id DESC
+    """
+    return [Item.from_row(row) for row in conn.execute(sql, params).fetchall()]
+
+
 def update_item(conn: sqlite3.Connection, item_id: int, **changes) -> Item | None:
     allowed = {"title", "description", "horizon", "priority", "target_date"}
     updates = {key: value for key, value in changes.items() if key in allowed and value is not None}

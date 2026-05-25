@@ -338,7 +338,7 @@ Agent use is the primary concern, so the agent-facing surface (`--json`, stable 
 
 ### Phase 4 — Human Polish (Week 4)
 
-- [ ] `commands/review.py`: interactive GTD review loop
+- [x] `commands/review.py`: interactive GTD review loop
 - [ ] `commands/stats.py`: completion rate, breakdown tables (`--json` supported)
 - [x] Shell tab completion (`bucket completion install`)
 - [ ] `--no-color` flag wired to rich console

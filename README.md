@@ -1,6 +1,6 @@
 # Bucket List CLI
 
-A local-first command-line app for managing a personal bucket list with SQLite, rich terminal output, JSON-friendly automation, and pairwise ranking review.
+A local-first command-line app for managing a personal bucket list with SQLite, rich terminal output, JSON-friendly automation, GTD-style review, and pairwise ranking review.
 
 The project is intentionally lightweight: Python, Typer, Rich, and the standard-library `sqlite3` module. Dependency and environment management use [`uv`](https://docs.astral.sh/uv/).
 
@@ -17,6 +17,7 @@ The project is intentionally lightweight: Python, Typer, Rich, and the standard-
 - Rich human-readable terminal output
 - `--json` output for scripting and agent workflows
 - Stable database override via `--db`
+- Interactive GTD-style review for keeping, promoting, completing, or abandoning items
 - Pairwise ranking review with binary-search insertion
 - `--until-all-ranked` mode to rank every unranked eligible item
 - JSON backup and restore
@@ -201,6 +202,25 @@ For scripting and agent use:
 ```bash
 uv run bucket --json stats
 ```
+
+## GTD Review
+
+Run an interactive review for active or in-progress `soon` and `someday` items:
+
+```bash
+uv run bucket review
+```
+
+For each item, choose whether to keep it, promote it to `now` or `soon`, mark it done, abandon it, skip it, or quit. Mutations are saved after each answer, so progress is preserved if you quit mid-session.
+
+Filter the review scope:
+
+```bash
+uv run bucket review --horizon someday
+uv run bucket review --all
+```
+
+GTD review is interactive and does not support global `--json`; use `review --ranking` for JSON-compatible review output.
 
 ## Pairwise Ranking Review
 

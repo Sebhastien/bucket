@@ -10,13 +10,13 @@ When `from_row` is called on a row that includes the `GROUP_CONCAT(...)` column 
 ### Ranking queries don't populate tags
 `get_ranked_items` and `choose_ranking_candidate` use `SELECT * FROM items` without joining tags, so returned items always have empty `tags` tuples. Not a bug today since ranking sessions only use titles, but a gap if we ever want to display tag info during ranking.
 
+### Tighten GTD review output assertion
+`test_review_gtd_mutations_persist` currently checks `"Reviewed 2 item(s)" in result.output`. That could pass if the string appears elsewhere. Prefer `assert result.output.count("Reviewed 2 item(s)") == 1` for a slightly more precise assertion.
+
 ## Pending Features
 
 ### Stats (`bucket stats`)
 Completion rate, breakdown by horizon/status/tag. High agent value with `--json`.
-
-### Interactive GTD review (non-ranking)
-Phase 4: a structured loop for reviewing `someday` items with prompt-driven horizon updates.
 
 ### Shell tab completion
 `bucket completion install` via Typer's built-in completion support.

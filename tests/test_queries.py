@@ -441,3 +441,47 @@ def test_add_tag_rejects_comma():
         assert "comma" in str(exc)
     else:
         raise AssertionError("comma in tag name should fail")
+
+
+def test_get_review_items_defaults():
+    conn = memory_conn()
+    queries.create_item(conn, title="A", horizon="now")
+    queries.create_item(conn, title="B", horizon="soon")
+    queries.create_item(conn, title="C", horizon="someday")
+    queries.create_item(conn, title="D", horizon="blocked")
+    queries.create_item(conn, title="E", horizon="someday")
+    queries.set_status(conn, 5, "completed")
+
+    items = queries.get_review_items(conn)
+    titles = [i.title for i in items]
+    assert titles == ["B", "C"]
+
+
+def test_get_review_items_by_horizon():
+    conn = memory_conn()
+    queries.create_item(conn, title="A", horizon="soon")
+    queries.create_item(conn, title="B", horizon="someday")
+
+    items = queries.get_review_items(conn, horizon="soon")
+    assert [i.title for i in items] == ["A"]
+
+    items = queries.get_review_items(conn, horizon="someday")
+    assert [i.title for i in items] == ["B"]
+
+
+def test_get_review_items_include_all():
+    conn = memory_conn()
+    queries.create_item(conn, title="A", horizon="soon")
+    queries.set_status(conn, 1, "completed")
+
+    items = queries.get_review_items(conn)
+    assert len(items) == 0
+
+    items = queries.get_review_items(conn, include_all=True)
+    assert [i.title for i in items] == ["A"]
+
+
+def test_get_review_items_empty():
+    conn = memory_conn()
+    assert queries.get_review_items(conn) == []
+    assert queries.get_review_items(conn, horizon="now") == []

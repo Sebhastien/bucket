@@ -84,10 +84,7 @@ def restore_database(conn: sqlite3.Connection, payload: dict) -> dict:
             conn.execute("DELETE FROM notes")
         conn.execute("DELETE FROM tags")
         conn.execute("DELETE FROM items")
-        seq_tables = ["items", "tags"]
-        if has_notes_in_backup:
-            seq_tables.append("notes")
-        conn.execute(f"DELETE FROM sqlite_sequence WHERE name IN ({', '.join(repr(t) for t in seq_tables)})")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('items', 'tags', 'notes')")
         for item in items:
             values = [item.get(column) for column in ITEM_COLUMNS]
             placeholders = ", ".join("?" for _ in ITEM_COLUMNS)

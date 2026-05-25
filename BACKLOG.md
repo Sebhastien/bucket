@@ -4,9 +4,6 @@ Known issues, technical debt, and planned features for the Bucket List CLI.
 
 ## Technical Debt
 
-### Error routing in `blocking.py` uses substring matching
-`blocking.py` dispatches error messages to exit codes by checking substrings (`"circular" in msg`, `"blocker" in msg`, `"itself" in msg`). This is pragmatic for the current scope but brittle if error messages change. If more error variants are added, switch to typed exceptions (e.g., `class CircularDependencyError(ValueError)`).
-
 ### `Item.from_row()` has a dual contract for the `tags` field
 When `from_row` is called on a row that includes the `GROUP_CONCAT(...)` column aliased as `tags`, it parses and sorts the comma-separated string. When called on a plain `SELECT * FROM items` row (e.g., ranking queries), `tags` is absent and defaults to `()`. This works but means `tags` has a different data contract than all other fields.
 

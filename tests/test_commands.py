@@ -43,6 +43,18 @@ def test_json_crud_contract(tmp_path):
     assert deleted["id"] == 1
 
 
+def test_start_marks_item_in_progress(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Build a canoe").exit_code == 0
+
+    result = invoke(db_path, "start", "1")
+
+    assert result.exit_code == 0, result.output
+    started = json.loads(result.output)
+    assert started["status"] == "in_progress"
+    assert started["completed_at"] is None
+
+
 def test_not_found_exit_code(tmp_path):
     result = invoke(tmp_path / "bucket.sqlite", "show", "999")
     assert result.exit_code == 2

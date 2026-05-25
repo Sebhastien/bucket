@@ -90,6 +90,15 @@ def register(app: typer.Typer) -> None:
         emit(ctx, item_payload(item), lambda console: render_item(item, console))
 
     @app.command()
+    def start(ctx: typer.Context, item_id: int) -> None:
+        """Mark an item in progress."""
+        with get_conn(ctx) as conn:
+            item = queries.set_status(conn, item_id, "in_progress")
+        if item is None:
+            fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
+        emit(ctx, item_payload(item), lambda console: render_item(item, console))
+
+    @app.command()
     def done(ctx: typer.Context, item_id: int) -> None:
         """Mark an item completed."""
         with get_conn(ctx) as conn:

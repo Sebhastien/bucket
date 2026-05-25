@@ -115,9 +115,10 @@ uv run bucket show 1
 uv run bucket edit 1 --title "Hike Grand Canyon rim-to-rim" --horizon now
 ```
 
-### Complete or abandon an item
+### Start, complete, or abandon an item
 
 ```bash
+uv run bucket start 1
 uv run bucket done 1
 uv run bucket abandon 2
 ```

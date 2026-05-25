@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 from rich.console import Console
@@ -43,7 +43,7 @@ def emit(ctx: typer.Context, payload: Any, human_renderer=None) -> None:
         ctx.obj["console"].print(payload)
 
 
-def fail(message: str, code: int = EXIT_USER_ERROR) -> None:
+def fail(message: str, code: int = EXIT_USER_ERROR) -> NoReturn:
     typer.echo(message, err=True)
     raise typer.Exit(code)
 

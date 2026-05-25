@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 from .models import HORIZONS, STATUSES, Item, Note, Tag
 
 
+class BlockerNotFoundError(ValueError):
+    pass
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -309,7 +313,7 @@ def block_item(conn: sqlite3.Connection, item_id: int, blocked_by_id: int) -> It
         return None
     blocker = get_item(conn, blocked_by_id)
     if blocker is None:
-        raise ValueError("blocker not found")
+        raise BlockerNotFoundError("blocker not found")
     if detect_circular_dependency(conn, item_id, blocked_by_id):
         raise ValueError("circular dependency detected")
     with conn:

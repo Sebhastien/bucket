@@ -457,3 +457,29 @@ def test_done_blocked_requires_force(tmp_path):
     assert result.exit_code == 0, result.output
     item = json.loads(result.output)
     assert item["status"] == "completed"
+
+
+def test_completion_show_bash():
+    result = runner.invoke(app, ["completion", "show", "--shell", "bash"])
+    assert result.exit_code == 0, result.output
+    assert "_bucket_completion()" in result.output
+
+
+def test_completion_show_zsh_json():
+    result = runner.invoke(app, ["--json", "completion", "show", "--shell", "zsh"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["shell"] == "zsh"
+    assert "#compdef bucket" in data["script"]
+
+
+def test_completion_show_fish():
+    result = runner.invoke(app, ["completion", "show", "--shell", "fish"])
+    assert result.exit_code == 0, result.output
+    assert "complete --command bucket" in result.output
+
+
+def test_completion_install_unknown_shell():
+    result = runner.invoke(app, ["completion", "install", "--shell", "unknown"])
+    assert result.exit_code == 1
+    assert "not supported" in result.output.lower()

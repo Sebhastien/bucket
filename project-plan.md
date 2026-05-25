@@ -340,7 +340,7 @@ Agent use is the primary concern, so the agent-facing surface (`--json`, stable 
 
 - [ ] `commands/review.py`: interactive GTD review loop
 - [ ] `commands/stats.py`: completion rate, breakdown tables (`--json` supported)
-- [ ] Shell tab completion (`bucket completion install`)
+- [x] Shell tab completion (`bucket completion install`)
 - [ ] `--no-color` flag wired to rich console
 - [ ] README with full command reference and agent-usage section
 

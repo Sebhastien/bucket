@@ -282,6 +282,31 @@ View ranked output:
 uv run bucket list --all --ranked
 ```
 
+## Shell Completion
+
+Generate and install shell tab completion scripts.
+
+Print a completion script for the current or specified shell:
+
+```bash
+uv run bucket completion show
+uv run bucket completion show --shell zsh
+```
+
+Install completion for the detected shell:
+
+```bash
+uv run bucket completion install
+```
+
+Install for a specific shell:
+
+```bash
+uv run bucket completion install --shell fish
+```
+
+Supported shells: `bash`, `zsh`, `fish`. After installing, restart your terminal or source your shell config file.
+
 ## Backup and Restore
 
 Create a JSON backup:
@@ -410,7 +435,6 @@ Planned next:
 
 - Interactive GTD review (non-ranking)
 - CSV/Markdown export
-- Shell tab completion install helper
 
 ## License
 

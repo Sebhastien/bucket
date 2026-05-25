@@ -61,9 +61,10 @@ def register(app: typer.Typer) -> None:
         """Show one item."""
         with get_conn(ctx) as conn:
             item = queries.get_item(conn, item_id)
-        if item is None:
-            fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
-        emit(ctx, item.to_dict(), lambda console: render_item(item, console))
+            if item is None:
+                fail(f"item not found: {item_id}", EXIT_NOT_FOUND)
+            notes = queries.get_notes_for_item(conn, item_id)
+        emit(ctx, item.to_dict(), lambda console: render_item(item, console, notes))
 
     @app.command()
     def edit(

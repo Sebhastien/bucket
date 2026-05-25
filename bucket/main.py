@@ -74,16 +74,23 @@ def schema(ctx: typer.Context) -> None:
                 },
                 "tags": {"id": "integer primary key", "name": "unique text"},
                 "item_tags": {"item_id": "integer", "tag_id": "integer"},
+                "notes": {
+                    "id": "integer primary key",
+                    "item_id": "integer required",
+                    "body": "text required",
+                    "created_at": "ISO datetime",
+                },
             },
             "exit_codes": {"success": 0, "user_error": 1, "not_found": 2, "conflict": 3},
         },
     )
 
 
-from .commands import blocking, export, items, review, tags  # noqa: E402
+from .commands import blocking, export, items, notes, review, tags  # noqa: E402
 
 items.register(app)
 review.register(app)
 export.register(app)
 tags.register(app)
 blocking.register(app)
+notes.register(app)

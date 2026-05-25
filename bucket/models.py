@@ -70,3 +70,23 @@ class Tag:
             "name": self.name,
             "item_count": self.item_count,
         }
+
+
+@dataclass(frozen=True)
+class Note:
+    id: int
+    item_id: int
+    body: str
+    created_at: str
+
+    @classmethod
+    def from_row(cls, row) -> "Note":
+        return cls(**dict(row))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "body": self.body,
+            "created_at": self.created_at,
+        }

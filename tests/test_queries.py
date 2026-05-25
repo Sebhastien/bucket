@@ -340,6 +340,47 @@ def test_delete_blocking_item_nullifies_dependents():
     assert item.blocked_by is None
 
 
+def test_add_note_to_item():
+    conn = memory_conn()
+    item = queries.create_item(conn, title="Test")
+    note = queries.add_note(conn, item.id, "Remember to pack light")
+
+    assert note is not None
+    assert note.item_id == item.id
+    assert note.body == "Remember to pack light"
+
+    notes = queries.get_notes_for_item(conn, item.id)
+    assert len(notes) == 1
+    assert notes[0].body == "Remember to pack light"
+
+
+def test_add_note_returns_none_for_missing_item():
+    conn = memory_conn()
+    result = queries.add_note(conn, 999, "Some text")
+    assert result is None
+
+
+def test_add_note_rejects_empty_body():
+    conn = memory_conn()
+    item = queries.create_item(conn, title="Test")
+    try:
+        queries.add_note(conn, item.id, "  ")
+    except ValueError as exc:
+        assert "required" in str(exc)
+    else:
+        raise AssertionError("empty note body should fail")
+
+
+def test_get_notes_orders_newest_first():
+    conn = memory_conn()
+    item = queries.create_item(conn, title="Test")
+    queries.add_note(conn, item.id, "First note")
+    queries.add_note(conn, item.id, "Second note")
+
+    notes = queries.get_notes_for_item(conn, item.id)
+    assert [n.body for n in notes] == ["Second note", "First note"]
+
+
 def test_add_tag_rejects_comma():
     conn = memory_conn()
     item = queries.create_item(conn, title="Test")

@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from .models import HORIZONS, STATUSES, Item, Tag
+from .models import HORIZONS, STATUSES, Item, Note, Tag
 
 
 def utc_now() -> str:
@@ -397,6 +397,29 @@ def list_tags(conn: sqlite3.Connection) -> list[Tag]:
 
 def _escape_like_pattern(query: str) -> str:
     return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def add_note(conn: sqlite3.Connection, item_id: int, body: str) -> Note | None:
+    if not body.strip():
+        raise ValueError("note body is required")
+    item = get_item(conn, item_id)
+    if item is None:
+        return None
+    with conn:
+        cursor = conn.execute(
+            "INSERT INTO notes (item_id, body, created_at) VALUES (?, ?, ?)",
+            (item_id, body.strip(), utc_now()),
+        )
+    row = conn.execute("SELECT * FROM notes WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    assert row is not None
+    return Note.from_row(row)
+
+
+def get_notes_for_item(conn: sqlite3.Connection, item_id: int) -> list[Note]:
+    rows = conn.execute(
+        "SELECT * FROM notes WHERE item_id = ? ORDER BY created_at DESC, id DESC", (item_id,)
+    ).fetchall()
+    return [Note.from_row(row) for row in rows]
 
 
 def search_items(conn: sqlite3.Connection, query: str) -> list[Item]:

@@ -123,7 +123,7 @@ def test_restore_existing_database_requires_confirmation(tmp_path):
 def test_restore_rejects_future_schema_version(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     backup_file = tmp_path / "future.json"
-    backup_file.write_text('{"schema_version": 999, "items": [], "tags": [], "item_tags": []}')
+    backup_file.write_text('{"schema_version": 999, "items": [], "tags": [], "item_tags": [], "notes": []}')
 
     result = invoke(db_path, "restore", str(backup_file))
 
@@ -249,6 +249,56 @@ def test_search_command(tmp_path):
     assert result.exit_code == 0, result.output
     items = json.loads(result.output)
     assert items == []
+
+
+def test_note_add_and_show(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Visit Japan").exit_code == 0
+
+    result = invoke(db_path, "note", "1", "Check", "visa", "requirements")
+    assert result.exit_code == 0, result.output
+    note = json.loads(result.output)
+    assert note["item_id"] == 1
+    assert note["body"] == "Check visa requirements"
+
+    result = invoke(db_path, "note", "1", "Book", "flights")
+    assert result.exit_code == 0
+
+    result = invoke(db_path, "show", "1")
+    assert result.exit_code == 0, result.output
+
+
+def test_note_requires_item(tmp_path):
+    result = invoke(tmp_path / "bucket.sqlite", "note", "999", "Some text")
+    assert result.exit_code == 2
+
+
+def test_note_empty_body(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Test").exit_code == 0
+
+    result = invoke(db_path, "note", "1", "")
+    assert result.exit_code == 1
+
+
+def test_note_backup_restore_round_trip(tmp_path):
+    source_db = tmp_path / "source.sqlite"
+    restored_db = tmp_path / "restored.sqlite"
+    backup_file = tmp_path / "backup.json"
+
+    assert invoke(source_db, "add", "Visit Japan").exit_code == 0
+    assert invoke(source_db, "note", "1", "Check visa").exit_code == 0
+    assert invoke(source_db, "backup", "--dest", str(backup_file)).exit_code == 0
+
+    result = invoke(restored_db, "restore", str(backup_file))
+    assert result.exit_code == 0, result.output
+    restore_result = json.loads(result.output)
+    assert restore_result["notes"] == 1
+
+    # verify the note was restored by checking human show output
+    result = runner.invoke(app, ["--db", str(restored_db), "show", "1"])
+    assert result.exit_code == 0, result.output
+    assert "Check visa" in result.output
 
 
 def test_tag_add_not_found(tmp_path):

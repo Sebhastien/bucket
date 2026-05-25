@@ -4,7 +4,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .models import Item
+from .models import Item, Note
 
 
 def render_items(items: list[Item], console: Console) -> None:
@@ -33,9 +33,19 @@ def render_items(items: list[Item], console: Console) -> None:
     console.print(table)
 
 
-def render_item(item: Item, console: Console) -> None:
+def _render_notes(notes: list[Note]) -> str:
+    if not notes:
+        return "[dim]No notes[/dim]"
+    lines = ["[bold]Notes[/bold]"]
+    for note in notes:
+        lines.append(f"  [{note.created_at}] {note.body}")
+    return "\n".join(lines)
+
+
+def render_item(item: Item, console: Console, notes: list[Note] | None = None) -> None:
     tags = ", ".join(item.tags) if item.tags else "[dim]none[/dim]"
     blocked = f"#{item.blocked_by}" if item.blocked_by else "[dim]-[/dim]"
+    notes_section = _render_notes(notes) if notes is not None else ""
     body = "\n".join(
         [
             f"[bold]{item.title}[/bold]",
@@ -49,6 +59,8 @@ def render_item(item: Item, console: Console) -> None:
             f"Tags: {tags}",
             "",
             item.description or "[dim]No description[/dim]",
+            "",
+            notes_section,
         ]
     )
     console.print(Panel(body, title=f"Item #{item.id}"))

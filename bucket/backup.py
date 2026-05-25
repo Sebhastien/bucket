@@ -24,6 +24,7 @@ ITEM_COLUMNS = (
 )
 TAG_COLUMNS = ("id", "name")
 ITEM_TAG_COLUMNS = ("item_id", "tag_id")
+NOTE_COLUMNS = ("id", "item_id", "body", "created_at")
 
 
 def dump_database(conn: sqlite3.Connection) -> dict:
@@ -36,6 +37,7 @@ def dump_database(conn: sqlite3.Connection) -> dict:
             dict(row)
             for row in conn.execute("SELECT item_id, tag_id FROM item_tags ORDER BY item_id, tag_id").fetchall()
         ],
+        "notes": [dict(row) for row in conn.execute("SELECT * FROM notes ORDER BY id").fetchall()],
     }
 
 
@@ -57,7 +59,7 @@ def current_schema_version(conn: sqlite3.Connection) -> int:
 
 
 def has_existing_data(conn: sqlite3.Connection) -> bool:
-    tables = ("items", "tags", "item_tags")
+    tables = ("items", "tags", "item_tags", "notes")
     return any(conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None for table in tables)
 
 
@@ -74,11 +76,13 @@ def restore_database(conn: sqlite3.Connection, payload: dict) -> dict:
     items = payload.get("items", [])
     tags = payload.get("tags", [])
     item_tags = payload.get("item_tags", [])
+    notes = payload.get("notes", [])
     with conn:
         conn.execute("DELETE FROM item_tags")
+        conn.execute("DELETE FROM notes")
         conn.execute("DELETE FROM tags")
         conn.execute("DELETE FROM items")
-        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('items', 'tags')")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('items', 'tags', 'notes')")
         for item in items:
             values = [item.get(column) for column in ITEM_COLUMNS]
             placeholders = ", ".join("?" for _ in ITEM_COLUMNS)
@@ -93,4 +97,9 @@ def restore_database(conn: sqlite3.Connection, payload: dict) -> dict:
                 "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)",
                 [item_tag.get(column) for column in ITEM_TAG_COLUMNS],
             )
-    return {"items": len(items), "tags": len(tags), "item_tags": len(item_tags)}
+        for note in notes:
+            conn.execute(
+                f"INSERT INTO notes ({', '.join(NOTE_COLUMNS)}) VALUES ({', '.join('?' for _ in NOTE_COLUMNS)})",
+                [note.get(column) for column in NOTE_COLUMNS],
+            )
+    return {"items": len(items), "tags": len(tags), "item_tags": len(item_tags), "notes": len(notes)}

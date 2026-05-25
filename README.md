@@ -10,6 +10,10 @@ The project is intentionally lightweight: Python, Typer, Rich, and the standard-
 - Local SQLite database with automatic migrations
 - Horizon planning: `now`, `soon`, `someday`, `blocked`
 - Lifecycle statuses: `active`, `in_progress`, `completed`, `abandoned`
+- Dependency blocking: mark items as blocked by other items
+- Tagging for flexible categorization
+- Notes on individual items
+- Search by title or description
 - Rich human-readable terminal output
 - `--json` output for scripting and agent workflows
 - Stable database override via `--db`
@@ -131,6 +135,56 @@ uv run bucket delete 1 --confirm
 ```
 
 Without `--confirm`, the CLI prompts before deleting.
+
+### Block and unblock items
+
+Mark an item as blocked by another:
+
+```bash
+uv run bucket block 2 --by 1
+```
+
+Remove the blocking relationship:
+
+```bash
+uv run bucket unblock 2
+```
+
+### Tags
+
+Add a tag to an item:
+
+```bash
+uv run bucket tag add 1 adventure
+```
+
+Remove a tag:
+
+```bash
+uv run bucket tag remove 1 adventure
+```
+
+List all tags with item counts:
+
+```bash
+uv run bucket tags
+```
+
+### Notes
+
+Add a note to an item:
+
+```bash
+uv run bucket note add 1 "Saw a great deal on flights today"
+```
+
+### Search
+
+Search titles and descriptions:
+
+```bash
+uv run bucket search "hike"
+```
 
 ## Pairwise Ranking Review
 
@@ -326,8 +380,10 @@ Implemented:
 
 - Core CRUD commands
 - SQLite migrations
-- JSON output
+- JSON output and schema introspection
 - Rich terminal rendering
+- Tags, notes, and blocking commands
+- Fuzzy search
 - Pairwise ranking review
 - `--until-all-ranked`
 - JSON backup and restore
@@ -335,10 +391,10 @@ Implemented:
 
 Planned next:
 
-- Tags and notes
-- Blocking commands
+- `bucket stats` — completion rate and breakdowns
+- Interactive GTD review (non-ranking)
 - CSV/Markdown export
-- Stats and fuller review workflows
+- Shell tab completion install helper
 
 ## License
 

@@ -457,3 +457,34 @@ def test_done_blocked_requires_force(tmp_path):
     assert result.exit_code == 0, result.output
     item = json.loads(result.output)
     assert item["status"] == "completed"
+
+
+def test_review_without_ranking_rejects_json(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "A", "--horizon", "someday").exit_code == 0
+
+    result = runner.invoke(app, ["--db", str(db_path), "--json", "review"])
+    assert result.exit_code == 1
+    assert "does not support --json" in result.output.lower()
+
+
+def test_review_gtd_mutations_persist(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "A", "--horizon", "someday").exit_code == 0
+    assert invoke(db_path, "add", "B", "--horizon", "soon").exit_code == 0
+
+    from unittest.mock import patch
+
+    prompts = iter(["n", "a", "quit"])
+    with patch("bucket.commands.review.typer.prompt", side_effect=lambda _: next(prompts)):
+        result = runner.invoke(app, ["--db", str(db_path), "review"])
+
+    assert result.exit_code == 0, result.output
+    assert "Reviewed 2 item(s)" in result.output
+
+    # Verify mutations persisted
+    # Review order is soon (B) first, then someday (A)
+    a = json.loads(invoke(db_path, "show", "1").output)
+    b = json.loads(invoke(db_path, "show", "2").output)
+    assert b["horizon"] == "now"      # B got "n" -> now
+    assert a["status"] == "abandoned"   # A got "a" -> abandon

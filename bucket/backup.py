@@ -52,6 +52,24 @@ def load_backup_file(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def current_schema_version(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()["version"])
+
+
+def has_existing_data(conn: sqlite3.Connection) -> bool:
+    tables = ("items", "tags", "item_tags")
+    return any(conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None for table in tables)
+
+
+def validate_backup_schema(conn: sqlite3.Connection, payload: dict) -> None:
+    backup_version = int(payload.get("schema_version", 0))
+    current_version = current_schema_version(conn)
+    if backup_version > current_version:
+        raise ValueError(
+            f"backup uses newer schema version {backup_version}; current database is version {current_version}"
+        )
+
+
 def restore_database(conn: sqlite3.Connection, payload: dict) -> dict:
     items = payload.get("items", [])
     tags = payload.get("tags", [])
@@ -60,6 +78,7 @@ def restore_database(conn: sqlite3.Connection, payload: dict) -> dict:
         conn.execute("DELETE FROM item_tags")
         conn.execute("DELETE FROM tags")
         conn.execute("DELETE FROM items")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('items', 'tags')")
         for item in items:
             values = [item.get(column) for column in ITEM_COLUMNS]
             placeholders = ", ".join("?" for _ in ITEM_COLUMNS)

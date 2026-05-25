@@ -220,13 +220,21 @@ Create a JSON backup:
 uv run bucket backup --dest ./bucket-backup.json
 ```
 
-Restore into a database:
+Restore into an empty database:
 
 ```bash
 uv run bucket --db ./restored.sqlite restore ./bucket-backup.json
 ```
 
-Backups currently include items, tags, item-tag relationships, ranks, quiz counts, and timestamps.
+Restore into a database that already has data:
+
+```bash
+uv run bucket --db ./existing.sqlite restore ./bucket-backup.json --confirm
+```
+
+`restore` replaces the target database contents, so `--confirm` is required when existing items, tags, or item-tag relationships are present.
+
+Backups currently include items, tags, item-tag relationships, ranks, quiz counts, and timestamps. Restore rejects backups from newer schema versions to avoid silently dropping unsupported future fields.
 
 ## JSON Output
 

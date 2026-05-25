@@ -99,6 +99,38 @@ def test_backup_restore_round_trip(tmp_path):
     assert restored_items == source_items
 
 
+def test_restore_existing_database_requires_confirmation(tmp_path):
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    backup_file = tmp_path / "backup.json"
+    assert invoke(source_db, "add", "Backup item").exit_code == 0
+    assert invoke(source_db, "backup", "--dest", str(backup_file)).exit_code == 0
+    assert invoke(target_db, "add", "Existing item").exit_code == 0
+
+    result = invoke(target_db, "restore", str(backup_file))
+
+    assert result.exit_code == 1
+    items = json.loads(invoke(target_db, "list", "--all").output)
+    assert [item["title"] for item in items] == ["Existing item"]
+
+    result = invoke(target_db, "restore", str(backup_file), "--confirm")
+
+    assert result.exit_code == 0, result.output
+    items = json.loads(invoke(target_db, "list", "--all").output)
+    assert [item["title"] for item in items] == ["Backup item"]
+
+
+def test_restore_rejects_future_schema_version(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    backup_file = tmp_path / "future.json"
+    backup_file.write_text('{"schema_version": 999, "items": [], "tags": [], "item_tags": []}')
+
+    result = invoke(db_path, "restore", str(backup_file))
+
+    assert result.exit_code == 1
+    assert "newer schema version" in result.output
+
+
 def test_review_ranking_inserts_unranked_item(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "First").exit_code == 0

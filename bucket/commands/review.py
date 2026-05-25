@@ -189,6 +189,21 @@ def _session_matches_filters(session, *, horizon: str | None, include_all: bool)
     return session["horizon"] == horizon and bool(session["include_all"]) == include_all
 
 
+def _item_matches_session_filters(item, session) -> bool:
+    if bool(session["include_all"]):
+        return True
+    if item.status not in ("active", "in_progress"):
+        return False
+    if item.horizon == "waiting":
+        return False
+    if item.blocked_by is not None:
+        return False
+    session_horizon = session["horizon"]
+    if session_horizon is not None and item.horizon != session_horizon:
+        return False
+    return True
+
+
 def render_ranking_payload(payload: dict, console) -> None:
     status = payload.get("status")
     if status == "comparison":
@@ -219,8 +234,10 @@ def next_ranking_step(
         candidate = queries.get_item(conn, int(session["candidate_id"]))
         pivot = queries.get_item(conn, int(session["pivot_id"])) if session["pivot_id"] is not None else None
         if candidate is not None and pivot is not None:
-            return _comparison_payload(candidate, pivot)
-        if candidate is not None:
+            if _item_matches_session_filters(candidate, session) and _item_matches_session_filters(pivot, session):
+                return _comparison_payload(candidate, pivot)
+            queries.delete_ranking_session(conn, candidate.id)
+        elif candidate is not None:
             queries.delete_ranking_session(conn, candidate.id)
 
     candidate, is_rerank = queries.choose_ranking_candidate(
@@ -278,6 +295,13 @@ def apply_ranking_answer(conn: sqlite3.Connection, *, candidate_id: int, pivot_i
     if winner == "skip":
         queries.delete_ranking_session(conn, candidate_id)
         return {"status": "skipped", "candidate": candidate.to_dict(), "pivot": pivot.to_dict()}
+
+    if not _item_matches_session_filters(candidate, session):
+        queries.delete_ranking_session(conn, candidate_id)
+        raise ValueError("candidate is no longer eligible for ranking; run rank-next again")
+    if not _item_matches_session_filters(pivot, session):
+        queries.delete_ranking_session(conn, candidate_id)
+        raise ValueError("pivot is no longer eligible for ranking; run rank-next again")
 
     horizon = session["horizon"]
     include_all = bool(session["include_all"])

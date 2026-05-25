@@ -246,6 +246,168 @@ def test_rank_next_rejects_pending_session_with_different_filters(tmp_path):
 
 
 
+def test_rank_answer_rejects_stale_candidate_waiting(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
+
+    # Make candidate ineligible by changing horizon to waiting
+    assert invoke(db_path, "edit", str(step["candidate"]["id"]), "--horizon", "waiting").exit_code == 0
+
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate",
+        str(step["candidate"]["id"]),
+        "--pivot",
+        str(step["pivot"]["id"]),
+        "--winner",
+        "candidate",
+    )
+
+    assert result.exit_code == 3
+    assert "no longer eligible" in result.output.lower()
+    assert "run rank-next again" in result.output.lower()
+
+    # Session should be deleted so rank-next can proceed cleanly
+    result = invoke(db_path, "rank-next", "--no-randomize")
+    assert result.exit_code == 0, result.output
+    step2 = json.loads(result.output)
+    assert step2["status"] in ("comparison", "empty")
+    if step2["status"] == "comparison":
+        assert step2["candidate"]["id"] != step["candidate"]["id"]
+
+
+def test_rank_answer_skip_with_stale_candidate_returns_skipped(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
+
+    # Make candidate ineligible by changing horizon to waiting
+    assert invoke(db_path, "edit", str(step["candidate"]["id"]), "--horizon", "waiting").exit_code == 0
+
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate",
+        str(step["candidate"]["id"]),
+        "--pivot",
+        str(step["pivot"]["id"]),
+        "--winner",
+        "skip",
+    )
+
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.output)
+    assert answer["status"] == "skipped"
+    assert answer["candidate"]["id"] == step["candidate"]["id"]
+    assert answer["pivot"]["id"] == step["pivot"]["id"]
+
+    # Session should be deleted
+    result = invoke(db_path, "rank-next", "--no-randomize")
+    assert result.exit_code == 0, result.output
+    step2 = json.loads(result.output)
+    assert step2["status"] in ("comparison", "empty")
+
+
+def test_rank_answer_rejects_stale_candidate_completed(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
+
+    assert invoke(db_path, "done", str(step["candidate"]["id"])).exit_code == 0
+
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate",
+        str(step["candidate"]["id"]),
+        "--pivot",
+        str(step["pivot"]["id"]),
+        "--winner",
+        "candidate",
+    )
+
+    assert result.exit_code == 3
+    assert "no longer eligible" in result.output.lower()
+
+
+def test_rank_answer_rejects_stale_candidate_blocked(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Blocker").exit_code == 0
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
+
+    assert invoke(db_path, "block", str(step["candidate"]["id"]), "--by", "1").exit_code == 0
+
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate",
+        str(step["candidate"]["id"]),
+        "--pivot",
+        str(step["pivot"]["id"]),
+        "--winner",
+        "candidate",
+    )
+
+    assert result.exit_code == 3
+    assert "no longer eligible" in result.output.lower()
+
+
+def test_rank_answer_allows_stale_when_all_flag_used(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next", "--all").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--all", "--no-randomize").output)
+
+    # Make candidate ineligible under normal filters
+    assert invoke(db_path, "done", str(step["candidate"]["id"])).exit_code == 0
+
+    result = invoke(
+        db_path,
+        "rank-answer",
+        "--candidate",
+        str(step["candidate"]["id"]),
+        "--pivot",
+        str(step["pivot"]["id"]),
+        "--winner",
+        "candidate",
+    )
+
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.output)
+    assert answer["status"] == "ranked"
+
+
+def test_rank_next_cleans_up_stale_session(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "First").exit_code == 0
+    assert invoke(db_path, "rank-next").exit_code == 0
+    assert invoke(db_path, "add", "Second").exit_code == 0
+    step = json.loads(invoke(db_path, "rank-next", "--no-randomize").output)
+
+    # Make candidate ineligible
+    assert invoke(db_path, "edit", str(step["candidate"]["id"]), "--horizon", "waiting").exit_code == 0
+
+    # rank-next should detect the stale session, delete it, and proceed cleanly
+    result = invoke(db_path, "rank-next", "--no-randomize")
+    assert result.exit_code == 0, result.output
+    step2 = json.loads(result.output)
+    assert step2["status"] in ("comparison", "empty")
+    if step2["status"] == "comparison":
+        assert step2["candidate"]["id"] != step["candidate"]["id"]
+
+
 def test_rank_answer_handles_missing_session_pivot_cleanly(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "First").exit_code == 0

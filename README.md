@@ -186,6 +186,22 @@ Search titles and descriptions:
 uv run bucket search "hike"
 ```
 
+### Stats
+
+Show aggregate statistics and breakdowns:
+
+```bash
+uv run bucket stats
+```
+
+Output includes total items, completion rate, counts by status and horizon, ranked vs. unranked items, blocked items, and tag counts.
+
+For scripting and agent use:
+
+```bash
+uv run bucket --json stats
+```
+
 ## Pairwise Ranking Review
 
 Ranking is separate from `priority`. `priority` is a manual 1–5 field; `rank` is a global ordered list where lower numbers are better.
@@ -384,6 +400,7 @@ Implemented:
 - Rich terminal rendering
 - Tags, notes, and blocking commands
 - Fuzzy search
+- Stats with completion rate and breakdowns
 - Pairwise ranking review
 - `--until-all-ranked`
 - JSON backup and restore
@@ -391,7 +408,6 @@ Implemented:
 
 Planned next:
 
-- `bucket stats` — completion rate and breakdowns
 - Interactive GTD review (non-ranking)
 - CSV/Markdown export
 - Shell tab completion install helper

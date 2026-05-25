@@ -386,6 +386,54 @@ def test_block_circular_dependency(tmp_path):
     assert "circular" in result.output.lower()
 
 
+def test_stats_json_contract(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "A", "--horizon", "now").exit_code == 0
+    assert invoke(db_path, "add", "B", "--horizon", "soon").exit_code == 0
+    assert invoke(db_path, "add", "C", "--horizon", "someday").exit_code == 0
+    assert invoke(db_path, "done", "1").exit_code == 0
+
+    result = invoke(db_path, "stats")
+    assert result.exit_code == 0, result.output
+    stats = json.loads(result.output)
+    assert stats["total"] == 3
+    assert stats["by_status"]["completed"] == 1
+    assert stats["by_status"]["active"] == 2
+    assert stats["by_horizon"]["now"] == 1
+    assert stats["by_horizon"]["soon"] == 1
+    assert stats["by_horizon"]["someday"] == 1
+    assert abs(stats["completion_rate"] - 1 / 3) < 1e-4
+    assert stats["ranked"] == 0
+    assert stats["unranked"] == 3
+    assert stats["blocked"] == 0
+    assert stats["by_tag"] == []
+
+
+def test_stats_with_tags_and_blocked(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    assert invoke(db_path, "add", "Get passport").exit_code == 0
+    assert invoke(db_path, "add", "Travel to Japan", "--tag", "travel").exit_code == 0
+    assert invoke(db_path, "block", "2", "--by", "1").exit_code == 0
+
+    result = invoke(db_path, "stats")
+    assert result.exit_code == 0, result.output
+    stats = json.loads(result.output)
+    assert stats["total"] == 2
+    assert stats["blocked"] == 1
+    assert stats["by_horizon"]["blocked"] == 1
+    by_tag = {t["name"]: t["count"] for t in stats["by_tag"]}
+    assert by_tag == {"travel": 1}
+
+
+def test_stats_empty_database(tmp_path):
+    db_path = tmp_path / "bucket.sqlite"
+    result = invoke(db_path, "stats")
+    assert result.exit_code == 0, result.output
+    stats = json.loads(result.output)
+    assert stats["total"] == 0
+    assert stats["completion_rate"] == 0.0
+
+
 def test_block_self(tmp_path):
     db_path = tmp_path / "bucket.sqlite"
     assert invoke(db_path, "add", "A").exit_code == 0

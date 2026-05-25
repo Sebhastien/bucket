@@ -381,6 +381,57 @@ def test_get_notes_orders_newest_first():
     assert [n.body for n in notes] == ["Second note", "First note"]
 
 
+def test_get_stats_empty_database():
+    conn = memory_conn()
+    stats = queries.get_stats(conn)
+    assert stats == {
+        "total": 0,
+        "by_status": {"active": 0, "in_progress": 0, "completed": 0, "abandoned": 0},
+        "by_horizon": {"now": 0, "soon": 0, "someday": 0, "blocked": 0},
+        "completion_rate": 0.0,
+        "ranked": 0,
+        "unranked": 0,
+        "blocked": 0,
+        "by_tag": [],
+    }
+
+
+def test_get_stats_reflects_items_and_tags():
+    conn = memory_conn()
+    queries.create_item(conn, title="A", horizon="now")
+    queries.create_item(conn, title="B", horizon="soon")
+    queries.create_item(conn, title="C", horizon="someday")
+    queries.set_status(conn, 1, "completed")
+    queries.add_tag_to_item(conn, 1, "travel")
+    queries.add_tag_to_item(conn, 2, "travel")
+    queries.add_tag_to_item(conn, 2, "adventure")
+
+    stats = queries.get_stats(conn)
+    assert stats["total"] == 3
+    assert stats["by_status"] == {"active": 2, "in_progress": 0, "completed": 1, "abandoned": 0}
+    assert stats["by_horizon"] == {"now": 1, "soon": 1, "someday": 1, "blocked": 0}
+    assert abs(stats["completion_rate"] - 1 / 3) < 1e-4
+    assert stats["ranked"] == 0
+    assert stats["unranked"] == 3
+    assert stats["blocked"] == 0
+    assert {t["name"]: t["count"] for t in stats["by_tag"]} == {"travel": 2, "adventure": 1}
+
+
+def test_get_stats_with_ranked_and_blocked():
+    conn = memory_conn()
+    queries.create_item(conn, title="A", horizon="now")
+    queries.create_item(conn, title="B", horizon="now")
+    queries.insert_item_at_rank(conn, 1, 1)
+    queries.block_item(conn, 2, 1)
+
+    stats = queries.get_stats(conn)
+    assert stats["total"] == 2
+    assert stats["ranked"] == 1
+    assert stats["unranked"] == 1
+    assert stats["blocked"] == 1
+    assert stats["by_horizon"]["blocked"] == 1
+
+
 def test_add_tag_rejects_comma():
     conn = memory_conn()
     item = queries.create_item(conn, title="Test")

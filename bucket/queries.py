@@ -440,6 +440,52 @@ def delete_note(conn: sqlite3.Connection, note_id: int) -> Note | None:
     return note
 
 
+def get_stats(conn: sqlite3.Connection) -> dict:
+    total_row = conn.execute("SELECT COUNT(*) FROM items").fetchone()
+    total = int(total_row[0])
+
+    by_status: dict[str, int] = {s: 0 for s in STATUSES}
+    for row in conn.execute("SELECT status, COUNT(*) as c FROM items GROUP BY status").fetchall():
+        by_status[row["status"]] = int(row["c"])
+
+    by_horizon: dict[str, int] = {h: 0 for h in HORIZONS}
+    for row in conn.execute("SELECT horizon, COUNT(*) as c FROM items GROUP BY horizon").fetchall():
+        by_horizon[row["horizon"]] = int(row["c"])
+
+    ranked_row = conn.execute("SELECT COUNT(*) FROM items WHERE rank IS NOT NULL").fetchone()
+    ranked = int(ranked_row[0])
+
+    blocked_row = conn.execute("SELECT COUNT(*) FROM items WHERE blocked_by IS NOT NULL").fetchone()
+    blocked = int(blocked_row[0])
+
+    tags = [
+        {"name": row["name"], "count": int(row["c"])}
+        for row in conn.execute(
+            """
+            SELECT t.name, COUNT(it.item_id) as c
+            FROM tags t
+            LEFT JOIN item_tags it ON it.tag_id = t.id
+            GROUP BY t.id, t.name
+            ORDER BY t.name
+            """
+        ).fetchall()
+    ]
+
+    completed = by_status.get("completed", 0)
+    completion_rate = round(completed / total, 4) if total else 0.0
+
+    return {
+        "total": total,
+        "by_status": by_status,
+        "by_horizon": by_horizon,
+        "completion_rate": completion_rate,
+        "ranked": ranked,
+        "unranked": total - ranked,
+        "blocked": blocked,
+        "by_tag": tags,
+    }
+
+
 def search_items(conn: sqlite3.Connection, query: str) -> list[Item]:
     escaped = _escape_like_pattern(query)
     pattern = f"%{escaped}%"

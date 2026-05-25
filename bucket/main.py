@@ -86,7 +86,7 @@ def schema(ctx: typer.Context) -> None:
     )
 
 
-from .commands import blocking, export, items, notes, review, tags  # noqa: E402
+from .commands import blocking, export, items, notes, review, stats, tags  # noqa: E402
 
 items.register(app)
 review.register(app)
@@ -94,3 +94,4 @@ export.register(app)
 tags.register(app)
 blocking.register(app)
 notes.register(app)
+stats.register(app)

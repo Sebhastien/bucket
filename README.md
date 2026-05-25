@@ -32,7 +32,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Clone the repository and install dependencies:
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Sebhastien/bucket.git
 cd bucket
 uv sync
 ```
